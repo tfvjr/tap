@@ -55,8 +55,15 @@ func DiscoverProcesses() ([]model.DevProcess, error) {
 
 		pid := p.Pid
 
+		var ppid int32
+		ppidVal, err := p.Ppid()
+		if err == nil {
+			ppid = ppidVal
+		}
+
 		dp := model.DevProcess{
 			PID:         &pid,
+			PPID:        ppid,
 			Name:        name,
 			Command:     cmdline,
 			Ports:       nil, // Port mapping is handled separately.

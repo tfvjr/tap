@@ -14,28 +14,67 @@ import (
 // extension). A process whose name matches one of these is considered
 // dev-relevant even if it has no open ports and no project attribution.
 var devProcessNames = map[string]bool{
+	// JavaScript / TypeScript runtimes
 	"node": true, "node.exe": true,
-	"python": true, "python.exe": true, "python3": true, "python3.exe": true,
-	"ruby": true, "ruby.exe": true,
-	"go": true, "go.exe": true,
-	"java": true, "java.exe": true, "javac": true, "javac.exe": true,
-	"cargo": true, "cargo.exe": true, "rustc": true, "rustc.exe": true,
+	"bun": true, "bun.exe": true,
+	"deno": true, "deno.exe": true,
+
+	// JS package managers & tools
+	"npm": true, "npm.exe": true, "npx": true, "npx.exe": true,
+	"yarn": true, "yarn.exe": true, "pnpm": true, "pnpm.exe": true,
+	"nodemon": true, "ts-node": true, "tsx": true,
+
+	// JS build tools
 	"webpack": true, "vite": true, "esbuild": true,
+	"next": true, "nuxt": true, "turbo": true, "turbo.exe": true,
+
+	// Python runtimes & tools
+	"python": true, "python.exe": true, "python3": true, "python3.exe": true,
+	"uv": true, "uv.exe": true,
+	"uvicorn": true, "gunicorn": true, "flask": true, "django": true,
+	"pipenv": true, "poetry": true, "poetry.exe": true,
+	"celery": true, "pytest": true, "pytest.exe": true,
+
+	// Ruby
+	"ruby": true, "ruby.exe": true,
+	"bundler": true, "rails": true, "puma": true, "sidekiq": true,
+	"jekyll": true,
+
+	// Go
+	"go": true, "go.exe": true,
+	"gopls": true, "gopls.exe": true,
+	"air": true, "air.exe": true,
+
+	// Rust
+	"cargo": true, "cargo.exe": true, "rustc": true, "rustc.exe": true,
+
+	// Java / JVM
+	"java": true, "java.exe": true, "javac": true, "javac.exe": true,
+	"gradle": true, "gradle.exe": true, "mvn": true, "mvn.exe": true,
+
+	// PHP
+	"php": true, "php.exe": true, "composer": true, "artisan": true,
+
+	// .NET
+	"dotnet": true, "dotnet.exe": true,
+
+	// Elixir
+	"elixir": true, "mix": true, "iex": true,
+
+	// Databases
 	"postgres": true, "postgres.exe": true, "pg_isready": true,
 	"mysqld": true, "mysqld.exe": true, "mysql": true,
 	"redis-server": true, "redis-server.exe": true,
 	"mongod": true, "mongod.exe": true, "mongos": true,
+
+	// Web servers / reverse proxies
 	"nginx": true, "nginx.exe": true, "caddy": true, "caddy.exe": true,
-	"npm": true, "npm.exe": true, "npx": true, "npx.exe": true,
-	"yarn": true, "yarn.exe": true, "pnpm": true, "pnpm.exe": true,
-	"bun": true, "bun.exe": true, "deno": true, "deno.exe": true,
-	"php": true, "php.exe": true, "dotnet": true, "dotnet.exe": true,
-	"uvicorn": true, "gunicorn": true, "flask": true, "django": true,
-	"next": true, "nuxt": true, "hugo": true, "hugo.exe": true,
-	"jekyll": true, "air": true, "air.exe": true,
-	"nodemon": true, "ts-node": true, "tsx": true,
+
+	// Static site generators
+	"hugo": true, "hugo.exe": true,
+
+	// Container tools
 	"docker-compose": true, "podman": true,
-	"gopls": true, "gopls.exe": true,
 }
 
 // isDevProcess returns true if the process is considered dev-relevant:

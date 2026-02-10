@@ -51,27 +51,37 @@ Think: **`htop` meets `docker ps` meets a project-aware process manager.**
 
 ---
 
-## Current State (v0.1 — Phase 1 Complete)
+## Current State (v0.1 — Phases 1 & 3 Complete)
 
 ### What's Built
 
-Phase 1 is implemented and working on Windows, macOS, and Linux:
+Phases 1 and 3 are implemented and working on Windows, macOS, and Linux:
 
-- **Process discovery** — enumerates all running processes via gopsutil, collects PID, name, command line, CWD, CPU%, memory, uptime
+**Discovery & Attribution:**
+- **Process discovery** — enumerates all running processes via gopsutil, collects PID, PPID, name, command line, CWD, CPU%, memory, uptime
 - **Port mapping** — cross-platform port-to-PID mapping via gopsutil's net.Connections
 - **Docker container discovery** — connects to the Docker daemon, lists containers with port mappings, images, names. Gracefully handles Docker being unavailable.
-- **Project attribution** — walks each process's CWD up to find project markers (package.json, go.mod, Cargo.toml, etc.), groups processes by project root
+- **Project attribution** — walks each process's CWD up to find project markers, groups processes by project root. Falls back to parent process chain walking (up to 10 levels) when a process's own CWD doesn't match.
 - **Dev-process filtering** — hides system processes, only shows dev tools and processes with open ports
-- **CLI commands**: `tap ls`, `tap ports`, `tap port <PORT>`, `tap kill <PID or :PORT>`
-- **JSON output** — `--json` flag on all commands for scripting
-- **Docker skip** — `--no-docker` flag for faster output when you don't need container info
+- **Broad ecosystem support** — project markers for JS/TS (package.json, bun.lockb, yarn.lock, pnpm-lock.yaml), Python (pyproject.toml, uv.lock, Pipfile, poetry.lock), Rust (Cargo.toml/lock), Go (go.mod), Ruby (Gemfile), Java (pom.xml, build.gradle), PHP (composer.json), .NET (*.csproj, *.sln, global.json), Elixir (mix.exs), C++ (CMakeLists.txt), Docker, and more. Process name recognition for uv, bun, deno, pipenv, poetry, turbo, rails, puma, gradle, mvn, and many others.
+
+**CLI Commands:**
+- `tap` / `tap ls` — list all dev processes grouped by project
+- `tap ports` — all ports in use, sorted by port number
+- `tap port <PORT>` — look up what's on a specific port
+- `tap kill <PID or :PORT>` — kill by PID or port (native + Docker)
+- `tap project <NAME>` — filtered view of a single project
+- `tap stop <NAME>` — stop all processes for a project (with confirmation)
+- `tap clean` — find long-running (>24h) processes and stopped containers, prompt to remove
+- `tap init` — register a project by creating `.tap.toml`
+- `tap export [NAME]` — shareable snapshot with services, system info, and toolchain versions
+- All commands support `--json`, `--no-docker`, and `--verbose` flags
 
 ### Known Limitations
 
-- **Project attribution relies on CWD** — if a dev server changes its working directory after start, or is launched from a shell in a different directory, it won't be attributed to the right project. This is the biggest accuracy gap.
-- **No process tree walking** — a `node` process spawned by `npm run dev` in project X might have its own CWD that doesn't match the project root. Walking the parent chain would improve attribution.
+- **CWD-based attribution isn't perfect** — if a dev server changes its working directory after start, it may not be attributed correctly. Process tree walking mitigates this for child processes (e.g., `node` spawned by `npm`), but edge cases remain.
 - **Docker container stats** — CPU and memory for containers are reported as 0 because the Docker stats API is a streaming call and too slow for a snapshot. Needs a caching layer.
-- **No config file** — the ignore list and project directories are hardcoded.
+- **No config file** — the ignore list and dev process names are hardcoded. A `~/.config/tap/config.toml` is planned.
 
 ---
 
@@ -371,10 +381,11 @@ tap/
 │   ├── ports.go                    # tap ports
 │   ├── port.go                     # tap port <PORT>
 │   ├── kill.go                     # tap kill <TARGET>
-│   ├── stop.go                     # tap stop <project>          [planned]
-│   ├── clean.go                    # tap clean                   [planned]
-│   ├── init.go                     # tap init                    [planned]
-│   └── export.go                   # tap export                  [planned]
+│   ├── project.go                  # tap project <NAME>
+│   ├── stop.go                     # tap stop <project>
+│   ├── clean.go                    # tap clean
+│   ├── init_cmd.go                 # tap init
+│   └── export.go                   # tap export
 ├── internal/
 │   ├── discovery/
 │   │   ├── processes.go            # Process enumeration via gopsutil
@@ -476,11 +487,11 @@ COMMANDS:
     ports           List all ports in use by dev processes
     port <PORT>     Show what's running on a specific port
     kill <TARGET>   Kill a process by PID or :PORT
-    project <NAME>  Show processes for a specific project       [planned]
-    stop <NAME>     Stop all processes for a project            [planned]
-    clean           Find and remove orphaned processes           [planned]
-    init            Register current directory as a project      [planned]
-    export          Export current state for sharing             [planned]
+    project <NAME>  Show processes for a specific project
+    stop <NAME>     Stop all processes for a project
+    clean           Find and remove orphaned processes/containers
+    init            Register current directory as a project
+    export [NAME]   Export current state for sharing
     dash            Launch interactive TUI dashboard             [Phase 2]
     up              Start project stack (requires .tap.toml)    [v0.2]
     down            Stop project stack                          [v0.2]
@@ -572,21 +583,23 @@ go build -ldflags="-s -w" -o tap .
 8. ~~JSON output mode~~
 9. ~~Dev-process filtering~~
 
-### Phase 2 — TUI Dashboard
-10. Interactive TUI dashboard with bubbletea + lipgloss
-11. Process grouping by project with expand/collapse
-12. Keyboard navigation and actions (kill, stop project)
-13. Real-time refresh (2-second polling)
-14. Process detail view on Enter
+### Phase 3 — Quality of Life (Done)
+10. ~~`tap stop <project>` — stop all project processes (with confirmation)~~
+11. ~~`tap clean` — orphan cleanup (long-running processes, stopped containers)~~
+12. ~~`tap init` — manual project registration via `.tap.toml`~~
+13. ~~`tap export` — state export with services, system info, and toolchain versions~~
+14. ~~`tap project <name>` — filtered view of a single project~~
+15. ~~Process tree walking (PPID chain) for better project attribution~~
+16. ~~Broad ecosystem support — lockfiles, runtimes, and package managers for JS/TS, Python, Rust, Go, Ruby, Java, PHP, .NET, Elixir, C++~~
+17. Global config file (`~/.config/tap/config.toml`)
+18. Configurable ignore lists
 
-### Phase 3 — Quality of Life
-15. `tap stop <project>` — stop all project processes
-16. `tap clean` — orphan cleanup (long-running processes, stopped containers)
-17. `tap init` — manual project registration
-18. `tap export` — state export for sharing
-19. Global config file (`~/.config/tap/config.toml`)
-20. Process tree walking for better project attribution
-21. Configurable ignore lists
+### Phase 2 — TUI Dashboard (Next)
+19. Interactive TUI dashboard with bubbletea + lipgloss
+20. Process grouping by project with expand/collapse
+21. Keyboard navigation and actions (kill, stop project)
+22. Real-time refresh (2-second polling)
+23. Process detail view on Enter
 
 ### Phase 4 — Stack Management (v0.2)
 22. `.tap.toml` project profiles

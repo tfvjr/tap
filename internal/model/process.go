@@ -14,6 +14,7 @@ const (
 // DevProcess represents a single process or container tracked by Tap.
 type DevProcess struct {
 	PID           *int32         `json:"pid,omitempty"`           // nil for stopped containers
+	PPID          int32          `json:"ppid,omitempty"`          // Parent PID (0 if unknown)
 	Name          string         `json:"name"`                    // e.g., "node", "postgres"
 	Command       string         `json:"command"`                 // Full command line
 	Ports         []PortBinding  `json:"ports"`                   // Ports this process is listening on
