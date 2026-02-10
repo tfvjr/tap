@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/tap-dev/tap/internal/discovery"
-	"github.com/tap-dev/tap/internal/model"
+	"github.com/tfvjr/tap/internal/discovery"
+	"github.com/tfvjr/tap/internal/model"
 )
 
 // stoppedContainer holds metadata about a Docker container in the "exited" state.

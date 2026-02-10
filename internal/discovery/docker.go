@@ -8,7 +8,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
-	"github.com/tap-dev/tap/internal/model"
+	"github.com/tfvjr/tap/internal/model"
 )
 
 // DiscoverContainers connects to the local Docker daemon and returns every

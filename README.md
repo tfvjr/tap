@@ -46,10 +46,10 @@ The parent that started it is dead. It's been running for 3 days. You probably f
 ## Install
 
 ```
-go install github.com/tap-dev/tap@latest
+go install github.com/tfvjr/tap@latest
 ```
 
-Or `git clone && go build`. Works on Windows, macOS, Linux. Binaries on the [releases page](https://github.com/tap-dev/tap/releases).
+Or `git clone && go build`. Works on Windows, macOS, Linux. Binaries on the [releases page](https://github.com/tfvjr/tap/releases).
 
 ## Usage
 

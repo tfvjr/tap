@@ -5,7 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
-	"github.com/tap-dev/tap/internal/tui"
+	"github.com/tfvjr/tap/internal/tui"
 )
 
 var dashCmd = &cobra.Command{

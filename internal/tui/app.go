@@ -9,8 +9,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/tap-dev/tap/internal/discovery"
-	"github.com/tap-dev/tap/internal/model"
+	"github.com/tfvjr/tap/internal/discovery"
+	"github.com/tfvjr/tap/internal/model"
 )
 
 const refreshInterval = 2 * time.Second

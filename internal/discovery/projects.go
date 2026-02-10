@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/tap-dev/tap/internal/model"
+	"github.com/tfvjr/tap/internal/model"
 )
 
 // normalizePath returns a canonical path suitable for use as a map key.

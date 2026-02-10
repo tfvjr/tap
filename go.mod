@@ -1,4 +1,4 @@
-module github.com/tap-dev/tap
+module github.com/tfvjr/tap
 
 go 1.24.2
 

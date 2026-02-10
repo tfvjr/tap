@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/tap-dev/tap/cmd"
+	"github.com/tfvjr/tap/cmd"
 )
 
 func main() {

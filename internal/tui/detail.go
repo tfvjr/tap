@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/tap-dev/tap/internal/model"
+	"github.com/tfvjr/tap/internal/model"
 )
 
 func (m Model) renderDetail() string {

@@ -2,7 +2,7 @@ package discovery
 
 import (
 	"github.com/shirou/gopsutil/v3/net"
-	"github.com/tap-dev/tap/internal/model"
+	"github.com/tfvjr/tap/internal/model"
 )
 
 // DiscoverPorts returns a map from PID to the list of ports that PID is

@@ -7,7 +7,7 @@ import (
 
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
-	"github.com/tap-dev/tap/internal/model"
+	"github.com/tfvjr/tap/internal/model"
 )
 
 // devProcessNames lists known developer tool process names (lowercase, without
