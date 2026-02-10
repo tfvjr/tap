@@ -89,6 +89,7 @@ Discovery engine, CLI commands, health analysis, and TUI dashboard — working o
 - Process discovery via gopsutil (PID, PPID, name, cmdline, CWD, CPU%, memory, uptime)
 - Cross-platform port-to-PID mapping via gopsutil net.Connections
 - Docker container discovery via Docker Engine API (graceful fallback when unavailable)
+- Docker Compose containers attributed to projects via `com.docker.compose.project.working_dir` label
 - Project attribution by walking CWD up to project markers, with parent chain fallback (up to 10 levels)
 - Two-pass dev filtering: first pass keeps known dev names + containers + port listeners; second pass (curated mode) drops unattributed processes that aren't known dev tools
 - Broad ecosystem support: JS/TS, Python, Rust, Go, Ruby, Java, PHP, .NET, Elixir, C++
