@@ -40,7 +40,7 @@ func killByPort(portStr string) error {
 		return fmt.Errorf("invalid port number %q: %w", portStr, err)
 	}
 
-	snap, err := discovery.TakeSnapshot(!noDocker)
+	snap, err := discovery.TakeSnapshot(!noDocker, false)
 	if err != nil {
 		return fmt.Errorf("taking snapshot: %w", err)
 	}

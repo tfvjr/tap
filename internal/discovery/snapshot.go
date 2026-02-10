@@ -77,24 +77,41 @@ var devProcessNames = map[string]bool{
 	"docker-compose": true, "podman": true,
 }
 
-// isDevProcess returns true if the process is considered dev-relevant:
-// it has open ports, is a container, or has a known dev tool name.
-func isDevProcess(p *model.DevProcess) bool {
-	if len(p.Ports) > 0 {
-		return true
-	}
+// isKnownDevName reports whether the process name matches a known dev tool.
+func isKnownDevName(p *model.DevProcess) bool {
+	return devProcessNames[strings.ToLower(p.Name)]
+}
+
+// isDevCandidate returns true if a process might be dev-relevant (first pass).
+// Keeps known dev names, containers, and anything with open ports.
+func isDevCandidate(p *model.DevProcess) bool {
 	if p.Kind != model.ProcessNative {
 		return true
 	}
-	name := strings.ToLower(p.Name)
-	return devProcessNames[name]
+	if isKnownDevName(p) {
+		return true
+	}
+	return len(p.Ports) > 0
 }
 
-// filterDevProcesses returns only dev-relevant processes from the input.
-func filterDevProcesses(procs []model.DevProcess) []model.DevProcess {
+// filterDevCandidates is the first-pass filter run before attribution.
+func filterDevCandidates(procs []model.DevProcess) []model.DevProcess {
 	filtered := make([]model.DevProcess, 0, len(procs)/4)
 	for i := range procs {
-		if isDevProcess(&procs[i]) {
+		if isDevCandidate(&procs[i]) {
+			filtered = append(filtered, procs[i])
+		}
+	}
+	return filtered
+}
+
+// filterUnattributed is the second-pass filter run after attribution.
+// It removes unattributed processes that only qualified because they had
+// open ports but are not known dev tools and not containers.
+func filterUnattributed(procs []model.DevProcess) []model.DevProcess {
+	filtered := make([]model.DevProcess, 0, len(procs))
+	for i := range procs {
+		if procs[i].Kind != model.ProcessNative || isKnownDevName(&procs[i]) {
 			filtered = append(filtered, procs[i])
 		}
 	}
@@ -103,9 +120,10 @@ func filterDevProcesses(procs []model.DevProcess) []model.DevProcess {
 
 // TakeSnapshot captures the full system state by discovering processes, ports,
 // and (optionally) containers, attributing them to projects, and collecting
-// system-level resource statistics. The returned Snapshot is a point-in-time
-// view suitable for display or serialisation.
-func TakeSnapshot(includeDocker bool) (*model.Snapshot, error) {
+// system-level resource statistics. When curated is true, the unattributed
+// list is filtered to only known dev tools (browsing mode). When false, all
+// port-listening processes are kept (search mode for tap port).
+func TakeSnapshot(includeDocker bool, curated bool) (*model.Snapshot, error) {
 	// 1. Discover all native (OS-level) processes.
 	processes, err := DiscoverProcesses()
 	if err != nil {
@@ -140,18 +158,24 @@ func TakeSnapshot(includeDocker bool) (*model.Snapshot, error) {
 		}
 	}
 
-	// 5. Filter to dev-relevant processes only.
-	processes = filterDevProcesses(processes)
+	// 5. First-pass filter: keep known dev names, containers, and port listeners.
+	processes = filterDevCandidates(processes)
 
 	// 6. Attribute processes to projects and separate the unattributed ones.
 	projectMap, unattributed := AttributeProcesses(processes)
+
+	// 7. Second-pass filter (curated mode): remove unattributed processes that
+	// only qualified because they had ports but aren't known dev tools.
+	if curated {
+		unattributed = filterUnattributed(unattributed)
+	}
 
 	projects := make([]model.Project, 0, len(projectMap))
 	for _, proj := range projectMap {
 		projects = append(projects, *proj)
 	}
 
-	// 6. Collect system-level resource statistics.
+	// 8. Collect system-level resource statistics.
 	systemCPU := 0.0
 	cpuPercents, err := cpu.Percent(0, false)
 	if err == nil && len(cpuPercents) > 0 {
@@ -165,7 +189,7 @@ func TakeSnapshot(includeDocker bool) (*model.Snapshot, error) {
 		memUsed = vmStat.Used
 	}
 
-	// 7. Assemble and return the snapshot.
+	// 9. Assemble and return the snapshot.
 	snapshot := &model.Snapshot{
 		Timestamp:         time.Now(),
 		Projects:          projects,
@@ -174,6 +198,9 @@ func TakeSnapshot(includeDocker bool) (*model.Snapshot, error) {
 		SystemMemoryTotal: memTotal,
 		SystemMemoryUsed:  memUsed,
 	}
+
+	// 10. Run health analysis (stale, orphan, resource warnings, parent chains).
+	AnalyzeHealth(snapshot)
 
 	return snapshot, nil
 }

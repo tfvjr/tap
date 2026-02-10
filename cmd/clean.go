@@ -50,7 +50,7 @@ func init() {
 
 func cleanRun(cmd *cobra.Command, args []string) error {
 	// 1. Take a snapshot of running dev processes.
-	snap, err := discovery.TakeSnapshot(!noDocker)
+	snap, err := discovery.TakeSnapshot(!noDocker, true)
 	if err != nil {
 		return fmt.Errorf("snapshot: %w", err)
 	}

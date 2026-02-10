@@ -26,7 +26,7 @@ func init() {
 }
 
 func exportRun(cmd *cobra.Command, args []string) error {
-	snap, err := discovery.TakeSnapshot(!noDocker)
+	snap, err := discovery.TakeSnapshot(!noDocker, true)
 	if err != nil {
 		return fmt.Errorf("snapshot: %w", err)
 	}

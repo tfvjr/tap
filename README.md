@@ -1,25 +1,36 @@
 # tap
 
-See everything running on your dev machine, organized by project.
+Diagnostic dev process manager. See what's running, which project owns it, and whether it's healthy.
 
-Tap groups your dev processes, ports, and Docker containers by project — so you know that the `node` on `:3000`, the `postgres` on `:5432`, and the `redis` on `:6379` all belong to your SaaS app, not your side project.
+Tap groups your dev processes, ports, and Docker containers by project — and flags problems like stale processes, orphaned children, and resource hogs. One command to diagnose, one keystroke to fix.
 
 ```
 $ tap
-PROJECT       PID    NAME       PORTS          CPU%   MEMORY     UPTIME
-my-saas-app   8821   node       :3000          12.3%  420.5 MB   2h 15m
-my-saas-app   9102   postgres   :5432          1.1%   180.2 MB   2h 15m
-my-saas-app   9103   redis      :6379          0.2%   30.1 MB    2h 15m
-side-project  11200  go         :8080          3.4%   90.3 MB    45m
-side-project  11201  postgres   :5433          0.1%   150.0 MB   45m
--             15332  node       :8443          5.0%   200.1 MB   3d 2h
+ tap                                              CPU: 34%  MEM: 8.2/16 GB
+─────────────────────────────────────────────────────────────────────────────
+
+ ▼ my-saas-app                    3 services    CPU 13.6%    630 MB    2h
+   ● :3000  node (next dev)                     CPU 12.3%    420 MB    2h
+   ● :5432  postgres (docker: pg-main)          CPU  1.1%    180 MB    2h
+   ● :6379  redis (docker: redis-cache)         CPU  0.2%     30 MB    2h
+
+ ▼ side-project                   2 services    CPU  3.5%    240 MB   45m
+   ● :8080  go (air)                            CPU  3.4%     90 MB   45m
+   ● :5433  postgres (docker: pg-side)          CPU  0.1%    150 MB   45m
+
+ ▼ unattributed                   1 process
+   ⚠ :8443  node                  ⚠ 3d uptime   CPU  5.0%    200 MB    3d
+
+ ↑↓ navigate  enter expand  k kill  s stop project  ? help  q quit
 ```
+
+Press Enter on any process for a full diagnostic card — parent chain, health flags, sibling services, and quick actions.
 
 ## Why not just use lsof?
 
-`lsof -i :3000` tells you PID 8821 is on port 3000. Then you run `ps aux | grep 8821` to figure out what it is. Then maybe `docker ps` to check containers. Then `kill -9 8821` and hope for the best.
+`lsof -i :3000` gives you a PID. Then `ps aux | grep` to figure out what it is. Then `kill -9` and hope for the best.
 
-Tap gives you the full picture in one command: which project owns the port, what else that project is running, and how much resources it's all consuming. Kill by port, kill by project, or just see what's going on.
+Tap tells you the full story: which project owns it, who spawned it, whether the parent is dead (orphaned process), how long it's been running, and what else that project has going. Then lets you kill it, or stop the whole project, with one keystroke.
 
 ## Install
 
@@ -38,11 +49,13 @@ Prebuilt binaries for Windows, macOS, and Linux are available on the [releases p
 ## Usage
 
 ```bash
-# List all dev processes, grouped by project
+# Launch TUI dashboard (default)
 tap
+
+# Non-interactive table output
 tap ls
 
-# What's on port 3000?
+# What's on port 3000? (full diagnostic)
 tap port 3000
 
 # List all ports in use
@@ -60,7 +73,7 @@ tap project my-saas-app
 # Stop everything for a project
 tap stop my-saas-app
 
-# Clean up orphaned processes and stopped containers
+# Clean up stale processes and stopped containers
 tap clean
 
 # Export a shareable snapshot (services, toolchain versions, OS)
@@ -74,27 +87,39 @@ tap init
 tap ls --json
 
 # Skip Docker discovery (faster)
-tap ls --no-docker
-
-# Show full command lines
-tap ls --verbose
+tap --no-docker
 ```
 
 ## How it works
 
-Tap scans your system and builds a snapshot:
+Tap scans your system and builds a diagnostic snapshot:
 
-1. **Process discovery** — enumerates all running processes, collects PID, name, command line, working directory, CPU%, memory, uptime
+1. **Process discovery** — enumerates all running processes via gopsutil (PID, name, command line, working directory, CPU%, memory, uptime)
 2. **Port mapping** — finds which processes are listening on which TCP ports
 3. **Docker discovery** — lists running containers with their port mappings, images, and names
-4. **Dev filtering** — hides system processes, keeps dev tools and anything with an open port
-5. **Project attribution** — walks each process's working directory up the filesystem tree looking for project markers, and groups processes by project root. If a process's own CWD doesn't match, walks the parent process chain.
+4. **Dev filtering** — two-pass filter: first keeps dev tools and port listeners, then removes non-dev processes that aren't attributed to any project
+5. **Project attribution** — walks each process's working directory up the filesystem tree looking for project markers, and groups processes by project root. Falls back to parent process chain walking.
+6. **Health analysis** — flags stale processes (>24h uptime), orphaned processes (parent is dead), high memory (>1GB), and high CPU (>50%). Walks the parent chain for diagnostic detail.
+
+### Browsing vs searching
+
+The dashboard (`tap`, `tap ls`) is **curated** — it only shows dev-relevant processes and hides system noise. When you **search** (`tap port`, `tap ports`, `tap kill`), you get the complete unfiltered picture. If something is on a port, those commands will always find it.
+
+### Health indicators
+
+| Indicator | Condition |
+|-----------|-----------|
+| ● HEALTHY | No issues detected |
+| ⚠ STALE | Running longer than 24 hours |
+| ⚠ ORPHAN | Parent process is dead |
+| ⚠ HIGH MEM | Memory usage exceeds 1 GB |
+| ⚠ HIGH CPU | CPU usage exceeds 50% |
 
 ### Supported ecosystems
 
 Tap recognizes project markers and runtimes for:
 
-- **JavaScript/TypeScript** — package.json, package-lock.json, yarn.lock, pnpm-lock.yaml, bun.lockb, node, bun, deno, npm, yarn, pnpm, vite, webpack, turbo, nodemon
+- **JavaScript/TypeScript** — package.json, yarn.lock, pnpm-lock.yaml, bun.lockb, node, bun, deno, npm, yarn, pnpm, vite, webpack, turbo, nodemon
 - **Python** — pyproject.toml, Pipfile, poetry.lock, uv.lock, requirements.txt, setup.py, python, uv, uvicorn, gunicorn, celery, pipenv, poetry
 - **Go** — go.mod, go, gopls, air
 - **Rust** — Cargo.toml, Cargo.lock, cargo, rustc
@@ -111,28 +136,43 @@ Tap recognizes project markers and runtimes for:
 
 | Command | Description |
 |---------|-------------|
-| `tap` / `tap ls` | List all dev processes in a table |
+| `tap` | Launch interactive TUI dashboard |
+| `tap ls` | List all dev processes (non-interactive table) |
+| `tap dash` | Launch TUI dashboard (explicit) |
 | `tap ports` | List all ports in use, sorted by port number |
-| `tap port <PORT>` | Show what's running on a specific port |
+| `tap port <PORT>` | Diagnostic lookup for a specific port |
 | `tap project <NAME>` | Show all processes for a specific project |
 | `tap kill <PID>` | Kill a process by PID |
 | `tap kill :<PORT>` | Kill whatever's listening on a port |
 | `tap stop <NAME>` | Stop all processes for a project (with confirmation) |
-| `tap clean` | Find long-running processes and stopped containers, offer to remove |
+| `tap clean` | Find stale processes and stopped containers, offer to remove |
 | `tap init` | Register current directory as a project (creates `.tap.toml`) |
-| `tap export [NAME]` | Export a shareable snapshot with services, system info, toolchain versions |
+| `tap export [NAME]` | Export a shareable snapshot with services and system info |
+
+### TUI keyboard shortcuts
+
+| Key | Action |
+|-----|--------|
+| `↑`/`↓` or `j`/`k` | Navigate processes |
+| `Enter` | Expand process detail (diagnostic card) |
+| `Esc` | Back to dashboard |
+| `k` | Kill selected process |
+| `s` | Stop all processes for selected project |
+| `r` | Force refresh |
+| `?` | Help |
+| `q` | Quit |
 
 ### Flags
 
 | Flag | Description |
 |------|-------------|
-| `--json` | Output as JSON |
+| `--json` | Output as JSON (falls back to non-interactive) |
 | `--no-docker` | Skip Docker/Podman container discovery |
 | `--verbose` | Show full command lines |
 
 ## Platform support
 
-Tap works natively on **Windows**, **macOS**, and **Linux**. Process and port discovery use [gopsutil](https://github.com/shirou/gopsutil) for cross-platform support. Docker discovery uses the Docker Engine API.
+Tap works natively on **Windows**, **macOS**, and **Linux**. Process and port discovery use [gopsutil](https://github.com/shirou/gopsutil) for cross-platform support. Docker discovery uses the Docker Engine API. TUI uses [bubbletea](https://github.com/charmbracelet/bubbletea).
 
 ## Roadmap
 
@@ -144,7 +184,10 @@ Tap works natively on **Windows**, **macOS**, and **Linux**. Process and port di
 - [x] Docker container discovery
 - [x] JSON output
 - [x] Broad ecosystem support (JS, Python, Go, Rust, Ruby, Java, PHP, .NET, Elixir, C++)
-- [ ] Interactive TUI dashboard (bubbletea)
+- [x] Interactive TUI dashboard (bubbletea + lipgloss)
+- [x] Health diagnostics (stale, orphan, high memory, high CPU)
+- [x] Parent chain visualization in detail view
+- [x] Two-pass dev filtering (curated browsing, unfiltered search)
 - [ ] Global config file (`~/.config/tap/config.toml`)
 - [ ] `tap up` / `tap down` — start/stop a full project stack from `.tap.toml`
 - [ ] Port conflict prevention
@@ -152,13 +195,13 @@ Tap works natively on **Windows**, **macOS**, and **Linux**. Process and port di
 
 ## Building from source
 
-Requires Go 1.23+ (toolchain auto-downloads 1.24 if needed).
+Requires Go 1.24+.
 
 ```bash
 # Development build
 go build -o tap .
 
-# Release build (smaller binary, ~7.6MB)
+# Release build (smaller binary, ~8.4MB)
 go build -ldflags="-s -w" -o tap .
 
 # Run tests
@@ -171,8 +214,9 @@ go test ./...
 tap/
 ├── main.go                    # Entry point
 ├── cmd/                       # CLI commands (cobra)
-│   ├── root.go                # Root command + global flags
-│   ├── ls.go                  # tap ls (default command)
+│   ├── root.go                # Root command + global flags + TUI launch
+│   ├── dash.go                # tap dash (explicit TUI entry)
+│   ├── ls.go                  # tap ls (non-interactive table)
 │   ├── ports.go               # tap ports
 │   ├── port.go                # tap port <PORT>
 │   ├── kill.go                # tap kill
@@ -182,13 +226,20 @@ tap/
 │   ├── init_cmd.go            # tap init
 │   └── export.go              # tap export
 └── internal/
-    ├── model/                 # Data types (DevProcess, Project, Snapshot)
-    └── discovery/             # System scanning
-        ├── processes.go       # Process enumeration (gopsutil)
-        ├── ports.go           # Port-to-PID mapping (gopsutil)
-        ├── docker.go          # Docker container discovery
-        ├── projects.go        # Project root detection + parent chain attribution
-        └── snapshot.go        # Aggregator + dev filter
+    ├── model/                 # Data types (DevProcess, Project, Snapshot, ProcessHealth)
+    ├── discovery/             # System scanning
+    │   ├── processes.go       # Process enumeration (gopsutil)
+    │   ├── ports.go           # Port-to-PID mapping (gopsutil)
+    │   ├── docker.go          # Docker container discovery
+    │   ├── projects.go        # Project root detection + parent chain attribution
+    │   ├── snapshot.go        # Aggregator + two-pass dev filter
+    │   └── health.go          # Health analysis (stale, orphan, resources)
+    └── tui/                   # Interactive TUI (bubbletea)
+        ├── app.go             # Main model + update loop
+        ├── dashboard.go       # Dashboard view (project list)
+        ├── detail.go          # Process detail / diagnostic card
+        ├── keys.go            # Key bindings
+        └── styles.go          # lipgloss styles
 ```
 
 ## License

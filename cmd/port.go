@@ -32,7 +32,7 @@ func portRun(cmd *cobra.Command, args []string) error {
 	}
 	targetPort := uint16(portNum)
 
-	snap, err := discovery.TakeSnapshot(!noDocker)
+	snap, err := discovery.TakeSnapshot(!noDocker, false)
 	if err != nil {
 		return fmt.Errorf("snapshot failed: %w", err)
 	}

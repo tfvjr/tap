@@ -25,6 +25,49 @@ type DevProcess struct {
 	StartTime     time.Time      `json:"start_time"`
 	Kind          ProcessKind    `json:"kind"`                    // Native | DockerContainer | PodmanContainer
 	ContainerInfo *ContainerInfo `json:"container_info,omitempty"`
+	Health        *ProcessHealth `json:"health,omitempty"`        // Diagnostic health flags
+}
+
+// HealthFlag identifies a specific health concern for a process.
+type HealthFlag string
+
+const (
+	HealthOK      HealthFlag = "ok"
+	HealthStale   HealthFlag = "stale"    // uptime > 24h
+	HealthOrphan  HealthFlag = "orphan"   // parent PID is dead
+	HealthHighMem HealthFlag = "high_mem" // > 1GB RSS
+	HealthHighCPU HealthFlag = "high_cpu" // > 50% CPU
+)
+
+// ProcessHealth holds diagnostic information for a process.
+type ProcessHealth struct {
+	Flags       []HealthFlag `json:"flags"`
+	ParentChain []ParentInfo `json:"parent_chain,omitempty"`
+}
+
+// ParentInfo describes one ancestor in a process's parent chain.
+type ParentInfo struct {
+	PID   int32  `json:"pid"`
+	Name  string `json:"name"`
+	Alive bool   `json:"alive"`
+}
+
+// HasFlag reports whether the health has a specific flag.
+func (h *ProcessHealth) HasFlag(flag HealthFlag) bool {
+	if h == nil {
+		return false
+	}
+	for _, f := range h.Flags {
+		if f == flag {
+			return true
+		}
+	}
+	return false
+}
+
+// IsHealthy returns true if there are no warning flags.
+func (h *ProcessHealth) IsHealthy() bool {
+	return h == nil || len(h.Flags) == 0
 }
 
 // PortBinding describes a single port a process is listening on.

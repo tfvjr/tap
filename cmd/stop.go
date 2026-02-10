@@ -28,7 +28,7 @@ func init() {
 func stopRun(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
-	snap, err := discovery.TakeSnapshot(!noDocker)
+	snap, err := discovery.TakeSnapshot(!noDocker, true)
 	if err != nil {
 		return fmt.Errorf("snapshot: %w", err)
 	}

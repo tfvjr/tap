@@ -34,7 +34,7 @@ func init() {
 }
 
 func portsRun(cmd *cobra.Command, args []string) error {
-	snap, err := discovery.TakeSnapshot(!noDocker)
+	snap, err := discovery.TakeSnapshot(!noDocker, false)
 	if err != nil {
 		return fmt.Errorf("snapshot failed: %w", err)
 	}

@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
+	"github.com/tap-dev/tap/internal/tui"
 )
 
 var (
@@ -15,11 +17,20 @@ var (
 
 var rootCmd = &cobra.Command{
 	Use:   "tap",
-	Short: "Dev machine resource manager",
-	Long:  "Tap gives developers instant visibility and control over every port, process, container, and resource running on their dev machine.",
+	Short: "Diagnostic dev process manager",
+	Long:  "Tap gives developers instant visibility and diagnostics for every port, process, and container running on their dev machine, organized by project.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Default behavior: show ls output (TUI comes in Phase 2)
-		return lsRun(cmd, args)
+		// If --json flag is set, fall back to ls output for scripting.
+		if jsonOutput {
+			return lsRun(cmd, args)
+		}
+		// Default: launch TUI dashboard.
+		m := tui.NewModel(noDocker)
+		p := tea.NewProgram(m, tea.WithAltScreen())
+		if _, err := p.Run(); err != nil {
+			return fmt.Errorf("TUI error: %w", err)
+		}
+		return nil
 	},
 }
 
