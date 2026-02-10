@@ -1,6 +1,6 @@
 # tap
 
-Know what's running on your machine and which project started it.
+Replaces `lsof` + `ps` + `docker ps` with one project-aware command.
 
 ```
 $ tap
