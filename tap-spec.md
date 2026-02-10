@@ -121,6 +121,7 @@ Discovery engine, CLI commands, health analysis, and TUI dashboard — working o
 - `tap project <NAME>` — filtered project view
 - `tap stop <NAME>` — stop all processes for a project
 - `tap clean` — find stale processes (>24h) and stopped containers
+- `tap doctor` — ranked resource report with actionable suggestions
 - `tap init` — create `.tap.toml` to register a project
 - `tap export [NAME]` — shareable snapshot with services and system info
 - `--json`, `--no-docker`, `--verbose` flags on all commands
@@ -248,6 +249,7 @@ COMMANDS:
     project <NAME>  Show processes for a project
     stop <NAME>     Stop all processes for a project
     clean           Find stale processes and stopped containers
+    doctor          Diagnose resource usage, rank projects, suggest fixes
     init            Register current directory as a project
     export [NAME]   Export state for sharing
 
@@ -359,7 +361,8 @@ tap/
 │   ├── clean.go                    # tap clean
 │   ├── init_cmd.go                 # tap init
 │   ├── export.go                   # tap export
-│   └── dash.go                     # tap dash (TUI entry point)├── internal/
+│   ├── dash.go                     # tap dash (TUI entry point)
+│   └── doctor.go                   # tap doctor (diagnostic report)├── internal/
 │   ├── discovery/
 │   │   ├── processes.go            # Process enumeration via gopsutil
 │   │   ├── ports.go                # Port-to-PID mapping
@@ -457,12 +460,14 @@ These get attached to `DevProcess` as a `Health *ProcessHealth` field.
 - ~~`tap` (bare command) launches TUI~~
 - ~~Two-pass dev filtering (curated browsing vs unfiltered search)~~
 
-### Phase 4 — Polish & Distribution (Future)
-- Global config file (`~/.config/tap/config.toml`)
-- Configurable thresholds (stale hours, memory warning)
-- `.tap.toml` project profiles
-- `tap up` / `tap down` — project stack management
-- Port conflict prevention
+### Phase 4 — Diagnostics v2 (Done)
+- ~~`tap doctor` — ranked resource report with actionable suggestions~~
+
+### Phase 5 — Future
+- Restart loop detection (process killed but respawned by parent)
+- Port conflict warnings ("port 3000 is already taken by project X")
+- Global config file (`~/.config/tap/config.toml`) — when needed
+- `tap export` polish (`--clipboard`, richer output)
 - Homebrew / Scoop / GitHub Releases
 
 ---

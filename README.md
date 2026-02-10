@@ -76,6 +76,9 @@ tap stop my-saas-app
 # Clean up stale processes and stopped containers
 tap clean
 
+# Diagnose what's eating your machine
+tap doctor
+
 # Export a shareable snapshot (services, toolchain versions, OS)
 tap export
 tap export my-saas-app
@@ -146,6 +149,7 @@ Tap recognizes project markers and runtimes for:
 | `tap kill :<PORT>` | Kill whatever's listening on a port |
 | `tap stop <NAME>` | Stop all processes for a project (with confirmation) |
 | `tap clean` | Find stale processes and stopped containers, offer to remove |
+| `tap doctor` | Ranked resource report with actionable suggestions |
 | `tap init` | Register current directory as a project (creates `.tap.toml`) |
 | `tap export [NAME]` | Export a shareable snapshot with services and system info |
 
@@ -188,6 +192,7 @@ Tap works natively on **Windows**, **macOS**, and **Linux**. Process and port di
 - [x] Health diagnostics (stale, orphan, high memory, high CPU)
 - [x] Parent chain visualization in detail view
 - [x] Two-pass dev filtering (curated browsing, unfiltered search)
+- [x] `tap doctor` — ranked resource report with actionable suggestions
 - [ ] Global config file (`~/.config/tap/config.toml`)
 - [ ] `tap up` / `tap down` — start/stop a full project stack from `.tap.toml`
 - [ ] Port conflict prevention
@@ -224,7 +229,8 @@ tap/
 │   ├── stop.go                # tap stop <NAME>
 │   ├── clean.go               # tap clean
 │   ├── init_cmd.go            # tap init
-│   └── export.go              # tap export
+│   ├── export.go              # tap export
+│   └── doctor.go              # tap doctor
 └── internal/
     ├── model/                 # Data types (DevProcess, Project, Snapshot, ProcessHealth)
     ├── discovery/             # System scanning
