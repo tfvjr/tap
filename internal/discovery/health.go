@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/process"
@@ -101,19 +102,22 @@ func walkParentChain(ppid int32) []model.ParentInfo {
 
 		p, err := process.NewProcess(pid)
 		if err != nil {
+			// Process truly doesn't exist.
 			info.Name = "unknown"
 			info.Alive = false
 			chain = append(chain, info)
 			break
 		}
 
+		// Process exists. Name may be unreadable due to permissions
+		// (common on Windows for system processes) — that's not death.
+		info.Alive = true
 		name, err := p.Name()
 		if err != nil {
-			info.Name = "unknown"
+			info.Name = fmt.Sprintf("pid:%d", pid)
 		} else {
 			info.Name = name
 		}
-		info.Alive = true
 
 		chain = append(chain, info)
 
@@ -127,13 +131,13 @@ func walkParentChain(ppid int32) []model.ParentInfo {
 	return chain
 }
 
-// processExistsOS checks the OS-level process table for a PID.
+// processExistsOS checks whether a PID is present in the OS process table.
+// It does not require reading the process name, which may fail on Windows
+// for system processes due to insufficient permissions.
 func processExistsOS(pid int32) bool {
-	p, err := process.NewProcess(pid)
+	exists, err := process.PidExists(pid)
 	if err != nil {
 		return false
 	}
-	// Verify it's actually running by trying to read its name.
-	_, err = p.Name()
-	return err == nil
+	return exists
 }
