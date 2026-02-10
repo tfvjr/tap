@@ -128,19 +128,42 @@ type packageJSON struct {
 }
 
 // InferProjectName derives a human-friendly project name from a project root
-// directory. It first attempts to read the "name" field from package.json.
-// If that fails for any reason it falls back to the directory basename.
+// directory. Priority: .tap.toml > package.json > directory basename.
 func InferProjectName(projectRoot string) string {
+	// 1. Explicit user choice via .tap.toml
+	tapPath := filepath.Join(projectRoot, ".tap.toml")
+	if data, err := os.ReadFile(tapPath); err == nil {
+		if name := inferNameFromTOML(string(data)); name != "" {
+			return name
+		}
+	}
+
+	// 2. package.json name field
 	pkgPath := filepath.Join(projectRoot, "package.json")
-	data, err := os.ReadFile(pkgPath)
-	if err == nil {
+	if data, err := os.ReadFile(pkgPath); err == nil {
 		var pkg packageJSON
 		if err := json.Unmarshal(data, &pkg); err == nil && pkg.Name != "" {
 			return pkg.Name
 		}
 	}
 
+	// 3. Directory basename
 	return filepath.Base(projectRoot)
+}
+
+// inferNameFromTOML extracts the project name from .tap.toml content.
+func inferNameFromTOML(data string) string {
+	for _, line := range strings.Split(data, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "name") {
+			if start := strings.IndexByte(line, '"'); start != -1 {
+				if end := strings.IndexByte(line[start+1:], '"'); end != -1 {
+					return line[start+1 : start+1+end]
+				}
+			}
+		}
+	}
+	return ""
 }
 
 // AttributeProcesses groups a slice of DevProcesses by project. For every

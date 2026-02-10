@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/tfvjr/tap/internal/discovery"
 )
 
 var initCmd = &cobra.Command{
@@ -29,8 +29,8 @@ func initRun(cmd *cobra.Command, args []string) error {
 	tapFile := filepath.Join(cwd, ".tap.toml")
 
 	// If .tap.toml already exists, inform the user and exit.
-	if data, err := os.ReadFile(tapFile); err == nil {
-		name := inferNameFromTOML(string(data))
+	if _, err := os.Stat(tapFile); err == nil {
+		name := discovery.InferProjectName(cwd)
 		fmt.Fprintf(cmd.OutOrStdout(), "Project already initialized: %s\n", name)
 		return nil
 	}
@@ -49,18 +49,3 @@ func initRun(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// inferNameFromTOML does a quick extraction of the project name from .tap.toml content.
-func inferNameFromTOML(data string) string {
-	for _, line := range strings.Split(data, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "name") {
-			// Extract the quoted value: name = "value"
-			if start := strings.IndexByte(line, '"'); start != -1 {
-				if end := strings.IndexByte(line[start+1:], '"'); end != -1 {
-					return line[start+1 : start+1+end]
-				}
-			}
-		}
-	}
-	return "<unknown>"
-}
