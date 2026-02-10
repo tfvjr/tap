@@ -39,13 +39,16 @@ func DiscoverContainers() ([]model.DevProcess, error) {
 		portBindings := buildPortBindings(c.Ports)
 		containerName := containerDisplayName(c.Names)
 
+		// Docker Compose sets labels that identify the project directory.
+		projectPath := c.Labels["com.docker.compose.project.working_dir"]
+
 		dp := model.DevProcess{
 			PID:         nil, // Containers don't expose a meaningful host PID.
 			Name:        c.Image,
 			Command:     c.Command,
 			Ports:       portBindings,
 			Project:     "",
-			ProjectPath: "",
+			ProjectPath: projectPath,
 			CPUPercent:  0, // Docker stats API is streaming and expensive; skip for now.
 			MemoryBytes: 0,
 			StartTime:   time.Unix(c.Created, 0),

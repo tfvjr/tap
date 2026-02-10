@@ -294,7 +294,9 @@ func formatDetailUptime(d time.Duration) string {
 		return fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
 	case hours > 0:
 		return fmt.Sprintf("%dh %dm", hours, minutes)
-	default:
+	case minutes > 0:
 		return fmt.Sprintf("%dm", minutes)
+	default:
+		return fmt.Sprintf("%ds", totalSeconds%60)
 	}
 }
