@@ -1,6 +1,6 @@
 # tap
 
-Replaces `lsof` + `ps` + `docker ps` with one project-aware command.
+Replaces `lsof` + `ps` + `docker ps` with one project-aware command. Background collector keeps a persistent history in SQLite, captures console output, and exposes everything to AI tools via MCP.
 
 ```
 $ tap
@@ -49,7 +49,7 @@ The parent that started it is dead. It's been running for 3 days. You probably f
 go install github.com/tfvjr/tap@latest
 ```
 
-Or `git clone && go build`. Works on Windows, macOS, Linux. Binaries on the [releases page](https://github.com/tfvjr/tap/releases).
+Or `git clone && go build`. Works on Windows, macOS, Linux.
 
 ## Usage
 
@@ -64,15 +64,76 @@ tap clean               # find stale stuff, offer to remove it
 tap doctor              # what's eating my machine?
 tap export              # shareable snapshot
 tap init                # register current dir as a project
+tap run <cmd>           # run a command and capture its output
+tap logs                # view captured output
+tap history             # snapshot timeline
+tap mcp                 # start MCP server for AI tools
 ```
 
-`--json` for scripting. `--no-docker` to skip containers. `--verbose` for full command lines.
+`--json` for scripting. `--verbose` for full command lines.
+
+## Background Collector
+
+On first run, tap starts a background collector that snapshots your system every 5 seconds and stores results in `~/.tap/tap.db` (SQLite with WAL mode). All commands read from the database instead of scanning live — this makes them instant and enables history.
+
+The collector auto-starts when you run any tap command. Check its status with `tap doctor`.
+
+## Console Capture
+
+Wrap any command with `tap run` to capture its output:
+
+```bash
+tap run npm start
+tap run go run .
+tap run python manage.py runserver
+```
+
+Output goes to your terminal normally AND gets stored in the database. Review it later:
+
+```bash
+tap logs                    # all captured output
+tap logs my-project         # filter by project
+tap logs --since 5m         # last 5 minutes
+tap logs --stream stderr    # just errors
+tap logs -f                 # follow mode (like tail -f)
+```
+
+## History
+
+```bash
+tap history                 # snapshot timeline
+tap history my-project      # for a specific project
+tap history --since 24h     # last 24 hours
+```
+
+## MCP Server
+
+Tap exposes its data to AI tools via the [Model Context Protocol](https://modelcontextprotocol.io/):
+
+```bash
+claude mcp add -s user tap -- tap mcp
+```
+
+This gives Claude Code 6 tools:
+
+| Tool | Parameters | Description |
+|------|-----------|-------------|
+| `tap_snapshot` | `project`, `curated` (bool, default true) | Latest system snapshot with all running dev processes, grouped by project |
+| `tap_history` | `project`, `since` (e.g. "30m", "1h"), `limit` (default 50) | Historical snapshot summaries showing process counts, CPU, and memory over time |
+| `tap_logs` | `project`, `stream` ("stdout"/"stderr"), `since`, `limit` (default 100), `search` | Console output captured by `tap run` |
+| `tap_projects` | _(none)_ | List all known projects currently being tracked |
+| `tap_health` | `project` | Health diagnostics — flags stale, orphaned, high-memory, and high-CPU processes |
+| `tap_processes` | `project`, `port`, `name` | Process list with filtering by project, port, or name |
 
 ## `tap doctor`
 
 ```
 $ tap doctor
 System: CPU 22%  MEM 27.6/31.7 GB (87%)
+
+Background Collector: running (PID 12345)
+Database: 1200 snapshots, 50 system stats, 340 log lines
+DB size: 2.1 MB (~/.tap/tap.db)
 
 Resource usage by project:
   PROJECT       SERVICES  CPU    MEMORY
@@ -97,8 +158,7 @@ Processes get flagged: ⚠ if they've been running >24h, if their parent process
 Go 1.24+.
 
 ```bash
-go build -o tap .                       # dev
-go build -ldflags="-s -w" -o tap .      # release (~8.4MB)
+go build -o tap .
 ```
 
 ## License

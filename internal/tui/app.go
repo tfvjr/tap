@@ -9,8 +9,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/tfvjr/tap/internal/discovery"
 	"github.com/tfvjr/tap/internal/model"
+	"github.com/tfvjr/tap/internal/store"
 )
 
 const refreshInterval = 2 * time.Second
@@ -40,7 +40,7 @@ type Model struct {
 	view        view
 	width       int
 	height      int
-	noDocker    bool
+	store       *store.Store
 	err         error
 	confirmKill bool   // true when awaiting kill confirmation
 	confirmMsg  string // message shown during confirmation
@@ -63,16 +63,16 @@ type tickMsg time.Time
 type statusClearMsg struct{}
 
 // NewModel creates the initial TUI model.
-func NewModel(noDocker bool) Model {
+func NewModel(s *store.Store) Model {
 	return Model{
-		noDocker: noDocker,
-		view:     viewDashboard,
+		store: s,
+		view:  viewDashboard,
 	}
 }
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
-		takeSnapshotCmd(m.noDocker),
+		queryDBCmd(m.store),
 		tickCmd(),
 	)
 }
@@ -95,7 +95,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		return m, tea.Batch(
-			takeSnapshotCmd(m.noDocker),
+			queryDBCmd(m.store),
 			tickCmd(),
 		)
 
@@ -164,7 +164,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Help):
 		m.view = viewHelp
 	case key.Matches(msg, keys.Refresh):
-		return m, takeSnapshotCmd(m.noDocker)
+		return m, queryDBCmd(m.store)
 	case msg.String() == "k":
 		return m, m.startKillSelected()
 	case key.Matches(msg, keys.Stop):
@@ -253,8 +253,9 @@ func (m *Model) executeKill() tea.Cmd {
 				return snapshotMsg{err: err}
 			}
 		}
-		// Re-snapshot after kill.
-		snap, err := discovery.TakeSnapshot(!m.noDocker, true)
+		// Wait briefly for the collector to pick up the change, then re-query.
+		time.Sleep(500 * time.Millisecond)
+		snap, err := m.store.LatestSnapshot(true)
 		return snapshotMsg{snap: snap, err: err}
 	}
 }
@@ -292,7 +293,9 @@ func (m *Model) executeStopProject() tea.Cmd {
 				}
 			}
 		}
-		snap, err := discovery.TakeSnapshot(!m.noDocker, true)
+		// Wait briefly for the collector to pick up the change, then re-query.
+		time.Sleep(500 * time.Millisecond)
+		snap, err := m.store.LatestSnapshot(true)
 		return snapshotMsg{snap: snap, err: err}
 	}
 }
@@ -374,9 +377,9 @@ func (m Model) View() string {
 	}
 }
 
-func takeSnapshotCmd(noDocker bool) tea.Cmd {
+func queryDBCmd(s *store.Store) tea.Cmd {
 	return func() tea.Msg {
-		snap, err := discovery.TakeSnapshot(!noDocker, true)
+		snap, err := s.LatestSnapshot(true)
 		return snapshotMsg{snap: snap, err: err}
 	}
 }

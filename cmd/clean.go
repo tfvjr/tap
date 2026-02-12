@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/tfvjr/tap/internal/discovery"
 	"github.com/tfvjr/tap/internal/model"
 )
 
@@ -49,13 +48,16 @@ func init() {
 }
 
 func cleanRun(cmd *cobra.Command, args []string) error {
-	// 1. Take a snapshot of running dev processes.
-	snap, err := discovery.TakeSnapshot(!noDocker, true)
+	snap, err := appStore.LatestSnapshot(true)
 	if err != nil {
-		return fmt.Errorf("snapshot: %w", err)
+		return fmt.Errorf("query: %w", err)
+	}
+	if snap == nil {
+		fmt.Println("No data yet. The collector is still starting.")
+		return nil
 	}
 
-	// 2. Find orphaned processes (running > 24 hours).
+	// Find orphaned processes (running > 24 hours).
 	allProcs := collectAllProcesses(snap)
 	threshold := 24 * time.Hour
 
@@ -66,29 +68,22 @@ func cleanRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// 3. Find stopped Docker containers.
-	var stopped []stoppedContainer
-	if !noDocker {
-		stopped = discoverStoppedContainers()
-	}
+	// Find stopped Docker containers.
+	stopped := discoverStoppedContainers()
 
-	// 4. Nothing to do?
 	if len(orphaned) == 0 && len(stopped) == 0 {
 		fmt.Println("Nothing to clean up.")
 		return nil
 	}
 
-	// 5. Build the report structs for JSON output.
 	report := buildCleanReport(orphaned, stopped)
 
-	// 6. If --json, output findings and return (no interactive prompt).
 	if jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(report)
 	}
 
-	// 7. Print findings to the terminal.
 	if len(orphaned) > 0 {
 		fmt.Printf("Found %d long-running processes:\n", len(orphaned))
 		for _, proc := range orphaned {
@@ -117,7 +112,6 @@ func cleanRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// 8. Prompt for confirmation.
 	fmt.Print("\nRemove all? [y/N] ")
 	scanner := bufio.NewScanner(os.Stdin)
 	if !scanner.Scan() {
@@ -129,7 +123,6 @@ func cleanRun(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// 9. Kill orphaned processes.
 	killedProcs := 0
 	for _, proc := range orphaned {
 		if proc.PID == nil {
@@ -148,7 +141,6 @@ func cleanRun(cmd *cobra.Command, args []string) error {
 		killedProcs++
 	}
 
-	// 10. Remove stopped containers.
 	removedContainers := 0
 	for _, c := range stopped {
 		out, err := exec.Command("docker", "rm", c.ID).CombinedOutput()
@@ -159,7 +151,6 @@ func cleanRun(cmd *cobra.Command, args []string) error {
 		removedContainers++
 	}
 
-	// 11. Print summary.
 	fmt.Printf("Cleaned up %d processes and %d containers.\n", killedProcs, removedContainers)
 	return nil
 }

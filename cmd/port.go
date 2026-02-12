@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/tfvjr/tap/internal/discovery"
 	"github.com/tfvjr/tap/internal/model"
 )
 
@@ -32,17 +31,17 @@ func portRun(cmd *cobra.Command, args []string) error {
 	}
 	targetPort := uint16(portNum)
 
-	snap, err := discovery.TakeSnapshot(!noDocker, false)
+	procs, err := appStore.ProcessesByPort(targetPort)
 	if err != nil {
-		return fmt.Errorf("snapshot failed: %w", err)
+		return fmt.Errorf("query: %w", err)
 	}
 
-	proc := findProcessByPort(snap, targetPort)
-
-	if proc == nil {
+	if len(procs) == 0 {
 		fmt.Fprintf(os.Stderr, "Nothing found on port %d\n", targetPort)
 		os.Exit(1)
 	}
+
+	proc := &procs[0]
 
 	if jsonOutput {
 		enc := json.NewEncoder(os.Stdout)

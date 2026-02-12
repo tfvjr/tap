@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(go mod edit:*)",
+      "Bash(go mod tidy:*)",
+      "Bash(go build:*)",
+      "Bash(.tap.exe:*)",
+      "Bash(./tap.exe:*)",
+      "Bash(go vet:*)",
+      "WebSearch"
+    ]
+  }
+}

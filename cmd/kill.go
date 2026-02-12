@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/tfvjr/tap/internal/discovery"
 	"github.com/tfvjr/tap/internal/model"
 )
 
@@ -40,9 +39,12 @@ func killByPort(portStr string) error {
 		return fmt.Errorf("invalid port number %q: %w", portStr, err)
 	}
 
-	snap, err := discovery.TakeSnapshot(!noDocker, false)
+	snap, err := appStore.LatestSnapshot(false)
 	if err != nil {
-		return fmt.Errorf("taking snapshot: %w", err)
+		return fmt.Errorf("query: %w", err)
+	}
+	if snap == nil {
+		return fmt.Errorf("no data yet")
 	}
 
 	// Collect every process from the snapshot (projects + unattributed).
