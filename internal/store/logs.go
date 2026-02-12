@@ -16,7 +16,7 @@ type LogLine struct {
 	Seq       int64     `json:"seq"`
 }
 
-// InsertLogLine inserts a single log line captured by tap run.
+// InsertLogLine inserts a single captured console output line.
 func (s *Store) InsertLogLine(timestamp time.Time, tapID, project, command, stream, line string, seq int64) error {
 	_, err := s.db.Exec(`
 		INSERT INTO logs (timestamp, tap_id, project, command, stream, line, seq)

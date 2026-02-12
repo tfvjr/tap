@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 	"github.com/tfvjr/tap/internal/daemon"
+	"github.com/tfvjr/tap/internal/shim"
 	"github.com/tfvjr/tap/internal/store"
 	"github.com/tfvjr/tap/internal/tui"
 )
@@ -25,8 +26,8 @@ var rootCmd = &cobra.Command{
 	Short: "Diagnostic dev process manager",
 	Long:  "Tap gives developers instant visibility and diagnostics for every port, process, and container running on their dev machine, organized by project.",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// _collect handles its own lifecycle — skip auto-start.
-		if cmd.Name() == "_collect" {
+		// _collect and _shim handle their own lifecycle — skip auto-start.
+		if cmd.Name() == "_collect" || cmd.Name() == "_shim" {
 			return nil
 		}
 
@@ -64,6 +65,11 @@ var rootCmd = &cobra.Command{
 				fmt.Fprintf(os.Stderr, "tap: started background collector (%s)\n", appStore.DBPath())
 				appStore.SetMeta("collector_started", "1")
 			}
+		}
+
+		// Auto-create shims for console capture.
+		if firstRun, _ := shim.EnsureShims(dataDir); firstRun {
+			fmt.Fprintln(os.Stderr, "tap: created shims for console capture — restart your terminal to activate")
 		}
 
 		return nil

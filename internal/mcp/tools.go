@@ -135,7 +135,7 @@ func handleLogs(s *store.Store) mcp.ToolHandlerFor[logsArgs, any] {
 		}
 
 		if len(lines) == 0 {
-			return textResult("No logs found. Use `tap run <command>` to capture output."), nil, nil
+			return textResult("No captured output yet."), nil, nil
 		}
 
 		data, _ := json.MarshalIndent(lines, "", "  ")

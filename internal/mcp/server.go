@@ -29,7 +29,7 @@ func Serve(s *store.Store) error {
 	// tap_logs — console output
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "tap_logs",
-		Description: "Get console output captured by 'tap run'. Returns stdout/stderr lines with timestamps.",
+		Description: "Get captured console output. Returns stdout/stderr lines with timestamps.",
 	}, handleLogs(s))
 
 	// tap_projects — list known projects

@@ -71,7 +71,7 @@ SQLite database at `~/.tap/tap.db` with WAL mode for concurrent reads.
 **Tables:**
 - `snapshots` — process snapshots (pid, name, command, ports, project, cpu, memory, etc.)
 - `system_stats` — system-level CPU/memory per snapshot
-- `logs` — console output captured by `tap run` (timestamp, project, command, stream, line)
+- `logs` — captured console output (timestamp, project, command, stream, line)
 - `meta` — key-value metadata (collector state, etc.)
 
 **Design decisions:**
@@ -79,9 +79,20 @@ SQLite database at `~/.tap/tap.db` with WAL mode for concurrent reads.
 - Pure Go SQLite driver (`modernc.org/sqlite`) — no CGo, works on Windows
 - All commands read from the DB, never from live discovery
 
-### Console Capture
+### Console Capture (PATH Shimming)
 
-`tap run <command>` spawns the child process, pipes stdout/stderr, tees output to the terminal AND writes each line to the `logs` table with a unique `tap_id` session identifier.
+Tap uses PATH shimming (same pattern as rbenv, pyenv, nvm) for transparent console capture. On first run, lightweight wrapper scripts for common dev tools (`node`, `npm`, `python`, `go`, `cargo`, etc.) are placed in `~/.tap/shims/` and prepended to PATH via shell config modification.
+
+When a user runs e.g. `npm start`, the shim intercepts the call and invokes `tap _shim npm start`. The `_shim` command:
+1. Opens SQLite directly (skips daemon check — ~5ms overhead)
+2. Finds the real `npm` binary (searches PATH minus `~/.tap/shims/`)
+3. Spawns the real binary with piped stdout/stderr
+4. Tees output: terminal + `store.InsertLogLine()`
+5. Forwards signals, returns the child's exit code
+
+If anything fails (store error, resolve error), `_shim` falls back to running the real binary directly without capture — the command must never break.
+
+`tap teardown` removes shims and restores shell config.
 
 ### MCP Server
 
@@ -91,7 +102,7 @@ SQLite database at `~/.tap/tap.db` with WAL mode for concurrent reads.
 |------|-----------|-------------|
 | `tap_snapshot` | `project` (string), `curated` (bool, default true) | Latest system snapshot with all running dev processes, grouped by project, with CPU/memory stats |
 | `tap_history` | `project` (string), `since` (string, e.g. "30m", "1h", default "1h"), `limit` (number, default 50) | Historical snapshot summaries showing process counts, CPU, and memory over time |
-| `tap_logs` | `project` (string), `stream` (string, "stdout"/"stderr"), `since` (string), `limit` (number, default 100), `search` (string) | Console output captured by `tap run`, with text search support |
+| `tap_logs` | `project` (string), `stream` (string, "stdout"/"stderr"), `since` (string), `limit` (number, default 100), `search` (string) | Captured console output with text search support |
 | `tap_projects` | _(none)_ | List all known projects currently being tracked |
 | `tap_health` | `project` (string) | Health diagnostics — flags stale, orphaned, high-memory, and high-CPU processes |
 | `tap_processes` | `project` (string), `port` (number), `name` (string) | Process list with filtering by project, port, or name |
@@ -124,7 +135,7 @@ All parameters are optional. Tool handlers use typed input structs with automati
 - Background collector polling every 5 seconds
 - Auto-start on any tap command
 - 24-hour data retention with automatic pruning
-- Console output capture via `tap run`
+- Automatic console output capture via PATH shimming
 
 **TUI Dashboard (bubbletea + lipgloss):**
 - Dashboard view with project grouping, health indicators, system stats header
@@ -152,8 +163,8 @@ All parameters are optional. Tool handlers use typed input structs with automati
 - `tap doctor` — resource report with collector status
 - `tap init` — create `.tap.toml` to register a project
 - `tap export [NAME]` — shareable snapshot
-- `tap run <command>` — run and capture console output
 - `tap logs [project]` — view captured output (--since, --stream, --follow, --limit)
+- `tap teardown` — remove PATH shims and restore shell config
 - `tap history [project]` — snapshot timeline (--since, --limit)
 - `tap mcp` — start MCP server over stdio
 - `--json`, `--verbose` flags on all commands
@@ -207,6 +218,14 @@ SQLite (tap.db, WAL mode)
     ├──► CLI Commands (tabwriter)         ← reads from DB
     ├──► MCP Server (stdio)               ← reads from DB
     └──► JSON Output (encoding/json)      ← reads from DB
+
+PATH Shims (~/.tap/shims/)
+    │
+    ▼
+tap _shim <command> [args...]             ← intercepts dev commands
+    │
+    ▼
+SQLite (tap.db, WAL mode)                 ← writes captured output
 ```
 
 ---
@@ -262,7 +281,8 @@ tap/
 │   ├── dash.go                     # tap dash
 │   ├── doctor.go                   # tap doctor
 │   ├── collect.go                  # tap _collect (hidden, background)
-│   ├── run.go                      # tap run <command>
+│   ├── shim.go                     # tap _shim (hidden, capture via PATH shims)
+│   ├── teardown.go                 # tap teardown
 │   ├── logs_cmd.go                 # tap logs
 │   ├── history.go                  # tap history
 │   └── mcp.go                     # tap mcp
@@ -289,7 +309,10 @@ tap/
 │   │   ├── detach_windows.go       # Windows process detachment
 │   │   └── detach_unix.go          # Unix process detachment
 │   ├── capture/
-│   │   └── runner.go               # RunAndCapture for tap run
+│   │   └── runner.go               # RunAndCapture for console capture
+│   ├── shim/
+│   │   ├── shim.go                 # EnsureShims, RemoveShims, shell config
+│   │   └── resolve.go              # ResolveReal — find binary excluding shims
 │   ├── mcp/
 │   │   ├── server.go               # MCP server setup + stdio transport
 │   │   └── tools.go                # Tool handlers
@@ -345,7 +368,7 @@ type HealthFlag string  // "stale", "orphan", "high_mem", "high_cpu"
 - TUI dashboard with bubbletea + lipgloss
 - All CLI commands (ls, ports, port, kill, stop, clean, doctor, init, export, project)
 - Background collector with SQLite persistence
-- Console capture (`tap run`) and log viewing (`tap logs`)
+- Automatic console capture (PATH shimming) and log viewing (`tap logs`)
 - Snapshot history (`tap history`)
 - MCP server for AI tool integration
 

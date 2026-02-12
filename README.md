@@ -64,10 +64,10 @@ tap clean               # find stale stuff, offer to remove it
 tap doctor              # what's eating my machine?
 tap export              # shareable snapshot
 tap init                # register current dir as a project
-tap run <cmd>           # run a command and capture its output
 tap logs                # view captured output
 tap history             # snapshot timeline
 tap mcp                 # start MCP server for AI tools
+tap teardown            # remove shims and restore shell config
 ```
 
 `--json` for scripting. `--verbose` for full command lines.
@@ -80,15 +80,9 @@ The collector auto-starts when you run any tap command. Check its status with `t
 
 ## Console Capture
 
-Wrap any command with `tap run` to capture its output:
+On first run, tap creates lightweight shims in `~/.tap/shims/` for common dev tools (`node`, `npm`, `python`, `go`, `cargo`, etc.) and prepends them to your PATH. Every dev command you run is transparently intercepted — output goes to your terminal normally AND gets stored in the database. No workflow changes needed.
 
-```bash
-tap run npm start
-tap run go run .
-tap run python manage.py runserver
-```
-
-Output goes to your terminal normally AND gets stored in the database. Review it later:
+Review captured output:
 
 ```bash
 tap logs                    # all captured output
@@ -97,6 +91,8 @@ tap logs --since 5m         # last 5 minutes
 tap logs --stream stderr    # just errors
 tap logs -f                 # follow mode (like tail -f)
 ```
+
+To remove shims and restore your shell config, run `tap teardown`.
 
 ## History
 
@@ -120,7 +116,7 @@ This gives Claude Code 6 tools:
 |------|-----------|-------------|
 | `tap_snapshot` | `project`, `curated` (bool, default true) | Latest system snapshot with all running dev processes, grouped by project |
 | `tap_history` | `project`, `since` (e.g. "30m", "1h"), `limit` (default 50) | Historical snapshot summaries showing process counts, CPU, and memory over time |
-| `tap_logs` | `project`, `stream` ("stdout"/"stderr"), `since`, `limit` (default 100), `search` | Console output captured by `tap run` |
+| `tap_logs` | `project`, `stream` ("stdout"/"stderr"), `since`, `limit` (default 100), `search` | Captured console output with text search support |
 | `tap_projects` | _(none)_ | List all known projects currently being tracked |
 | `tap_health` | `project` | Health diagnostics — flags stale, orphaned, high-memory, and high-CPU processes |
 | `tap_processes` | `project`, `port`, `name` | Process list with filtering by project, port, or name |

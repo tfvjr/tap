@@ -20,7 +20,7 @@ var (
 var logsCmd = &cobra.Command{
 	Use:   "logs [project]",
 	Short: "Show captured console output",
-	Long:  "Display output captured by `tap run`. Filter by project, time range, or stream.",
+	Long:  "Display captured console output. Filter by project, time range, or stream.",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  logsRun,
 }
@@ -65,7 +65,7 @@ func logsRun(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(lines) == 0 {
-		fmt.Println("No logs found. Use `tap run <command>` to capture output.")
+		fmt.Println("No captured output yet.")
 		return nil
 	}
 
