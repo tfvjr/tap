@@ -82,6 +82,12 @@ func isKnownDevName(p *model.DevProcess) bool {
 	return devProcessNames[strings.ToLower(p.Name)]
 }
 
+// IsKnownDevName reports whether the given name matches a known dev tool.
+// Exported for use by the store package's curated filtering.
+func IsKnownDevName(name string) bool {
+	return devProcessNames[strings.ToLower(name)]
+}
+
 // isDevCandidate returns true if a process might be dev-relevant (first pass).
 // Keeps known dev names, containers, and anything with open ports.
 func isDevCandidate(p *model.DevProcess) bool {

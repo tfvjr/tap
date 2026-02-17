@@ -2,7 +2,7 @@
 
 ## One-Liner
 
-A diagnostic CLI that tells you *why* port 3000 is stuck, which project owns it, and what else that project is running — then lets you fix it.
+A persistent dev process observatory — background collector, SQLite history, console capture, MCP server, and a TUI that tells you what's running, what's broken, and what you forgot about.
 
 ---
 
@@ -39,9 +39,7 @@ There are several tools in this space. Here's how tap fits:
 | [portik](https://github.com/pratik-anurag/portik) | new | "Why is this port stuck" diagnostics | No project grouping, no TUI dashboard |
 | `lsof` / `netstat` | — | Raw port/PID lookup | Zero context, zero DX |
 
-**Tap's angle:** The diagnostic card. Not just "what's on port 3000" but "here's the full story — the process, its parent chain, the project, the resources, and whether it's healthy or a zombie." Visualized in a TUI that you'd actually screenshot and share.
-
-The tools that succeed in dev tooling are either daily drivers or visually compelling enough to spread. Tap aims for the latter: the kind of output you'd paste in a PR, tweet, or teammate DM.
+**Tap's angle:** Not just "what's on port 3000" but "here's the full story — the process, its parent chain, the project, the resources, and whether it's healthy or a zombie." Plus persistent history, console capture, and AI tool integration via MCP.
 
 ---
 
@@ -49,41 +47,73 @@ The tools that succeed in dev tooling are either daily drivers or visually compe
 
 - Full-stack developers running 2-5 projects simultaneously
 - Developers who hit port conflicts weekly and want a faster diagnostic workflow
-- Anyone who has killed a PID from `lsof` and hoped for the best
+- Teams using Claude Code or other AI tools that benefit from real-time dev environment visibility
 
 ---
 
-## Core Concept: The Diagnostic Card
+## Architecture
 
-The killer feature is `tap :3000` — a single command that produces a diagnostic card:
+### Background Collector
 
-```
-Port 3000 — OCCUPIED
+The collector is the single source of truth. It's the only component that calls the discovery engine.
 
-├─ node (PID 4521) — running 3d 4h — ⚠ STALE (uptime > 24h)
-│  command:  next dev
-│  spawned by: npm run dev (PID 4518) — DEAD
-│  project: ~/code/my-saas-app (Next.js)
-│  memory: 284 MB (RSS)
-│  cpu: 12.3%
-│
-└─ [k] kill  [s] stop project  [q] quit
-```
+- Auto-starts on any `tap` command via `PersistentPreRunE`
+- Runs as a detached background process (`tap _collect`, hidden command)
+- Polls every 5 seconds: `discovery.TakeSnapshot()` → SQLite
+- PID file at `~/.tap/collector.pid` with liveness checks via `gopsutil`
+- Prunes data older than 24 hours on each cycle
+- Platform-specific detachment: `DETACHED_PROCESS` flag on Windows, `Setsid` on Unix
 
-This tells you everything:
-- **What** is on the port (node, running Next.js dev server)
-- **Who started it** (npm run dev — and that parent is dead, so this is semi-orphaned)
-- **Which project** it belongs to
-- **Whether it's healthy** (running 3 days with a dead parent = probably forgotten)
-- **What to do about it** (kill it, or stop the whole project)
+### Storage Layer
+
+SQLite database at `~/.tap/tap.db` with WAL mode for concurrent reads.
+
+**Tables:**
+- `snapshots` — process snapshots (pid, name, command, ports, project, cpu, memory, etc.)
+- `system_stats` — system-level CPU/memory per snapshot
+- `logs` — captured console output (timestamp, project, command, stream, line)
+- `meta` — key-value metadata (collector state, etc.)
+
+**Design decisions:**
+- Store unfiltered, filter on read (curated vs unfiltered is a query-time concern)
+- Pure Go SQLite driver (`modernc.org/sqlite`) — no CGo, works on Windows
+- All commands read from the DB, never from live discovery
+
+### Console Capture (PATH Shimming)
+
+Tap uses PATH shimming (same pattern as rbenv, pyenv, nvm) for transparent console capture. On first run, lightweight wrapper scripts for common dev tools (`node`, `npm`, `python`, `go`, `cargo`, etc.) are placed in `~/.tap/shims/` and prepended to PATH via shell config modification.
+
+When a user runs e.g. `npm start`, the shim intercepts the call and invokes `tap _shim npm start`. The `_shim` command:
+1. Opens SQLite directly (skips daemon check — ~5ms overhead)
+2. Finds the real `npm` binary (searches PATH minus `~/.tap/shims/`)
+3. Spawns the real binary with piped stdout/stderr
+4. Tees output: terminal + `store.InsertLogLine()`
+5. Forwards signals, returns the child's exit code
+
+If anything fails (store error, resolve error), `_shim` falls back to running the real binary directly without capture — the command must never break.
+
+`tap teardown` removes shims and restores shell config.
+
+### MCP Server
+
+`tap mcp` starts a Model Context Protocol server over stdio using the official Go SDK (`github.com/modelcontextprotocol/go-sdk`). Exposes 6 tools:
+
+| Tool | Parameters | Description |
+|------|-----------|-------------|
+| `tap_snapshot` | `project` (string), `curated` (bool, default true) | Latest system snapshot with all running dev processes, grouped by project, with CPU/memory stats |
+| `tap_history` | `project` (string), `since` (string, e.g. "30m", "1h", default "1h"), `limit` (number, default 50) | Historical snapshot summaries showing process counts, CPU, and memory over time |
+| `tap_logs` | `project` (string), `stream` (string, "stdout"/"stderr"), `since` (string), `limit` (number, default 100), `search` (string) | Captured console output with text search support |
+| `tap_projects` | _(none)_ | List all known projects currently being tracked |
+| `tap_health` | `project` (string) | Health diagnostics — flags stale, orphaned, high-memory, and high-CPU processes |
+| `tap_processes` | `project` (string), `port` (number), `name` (string) | Process list with filtering by project, port, or name |
+
+All parameters are optional. Tool handlers use typed input structs with automatic JSON schema generation via the Go SDK's generic `AddTool` function.
 
 ---
 
-## Current State (v0.2 — TUI + Diagnostics Complete)
+## Current State
 
 ### What's Built
-
-Discovery engine, CLI commands, health analysis, and TUI dashboard — working on Windows, macOS, and Linux:
 
 **Discovery & Attribution:**
 - Process discovery via gopsutil (PID, PPID, name, cmdline, CWD, CPU%, memory, uptime)
@@ -100,6 +130,13 @@ Discovery engine, CLI commands, health analysis, and TUI dashboard — working o
 - Resource warnings (memory > 1GB, CPU > 50%)
 - Parent chain walking with liveness checks for diagnostic detail view
 
+**Persistent Storage:**
+- SQLite with WAL mode for concurrent reads
+- Background collector polling every 5 seconds
+- Auto-start on any tap command
+- 24-hour data retention with automatic pruning
+- Automatic console output capture via PATH shimming
+
 **TUI Dashboard (bubbletea + lipgloss):**
 - Dashboard view with project grouping, health indicators, system stats header
 - Process detail view with diagnostic card (process info, parent chain tree, sibling services, health diagnostics)
@@ -108,9 +145,10 @@ Discovery engine, CLI commands, health analysis, and TUI dashboard — working o
 - 2-second auto-refresh with cursor preservation
 - j/k and arrow key navigation, Enter to drill down, Esc to go back
 
-**Browsing vs Searching:**
-- Browsing (`tap`, `tap ls`, `tap project`) — curated view, hides non-dev port listeners
-- Searching (`tap port`, `tap ports`, `tap kill`) — unfiltered, always shows everything on a port
+**MCP Server:**
+- Official Go SDK (`github.com/modelcontextprotocol/go-sdk`)
+- 6 tools with typed input schemas
+- Stdio transport for Claude Code integration
 
 **CLI Commands:**
 - `tap` — launches TUI dashboard (default)
@@ -122,177 +160,29 @@ Discovery engine, CLI commands, health analysis, and TUI dashboard — working o
 - `tap project <NAME>` — filtered project view
 - `tap stop <NAME>` — stop all processes for a project
 - `tap clean` — find stale processes (>24h) and stopped containers
-- `tap doctor` — ranked resource report with actionable suggestions
+- `tap doctor` — resource report with collector status
 - `tap init` — create `.tap.toml` to register a project
-- `tap export [NAME]` — shareable snapshot with services and system info
-- `--json`, `--no-docker`, `--verbose` flags on all commands
+- `tap export [NAME]` — shareable snapshot
+- `tap logs [project]` — view captured output (--since, --stream, --follow, --limit)
+- `tap teardown` — remove PATH shims and restore shell config
+- `tap history [project]` — snapshot timeline (--since, --limit)
+- `tap mcp` — start MCP server over stdio
+- `--json`, `--verbose` flags on all commands
+- `--data-dir` to override default `~/.tap/` location
+
+**Browsing vs Searching:**
+- Browsing (`tap`, `tap ls`, `tap project`) — curated view, hides non-dev port listeners
+- Searching (`tap port`, `tap ports`, `tap kill`) — unfiltered, always shows everything on a port
 
 ### Known Limitations
 
 - CWD-based attribution isn't perfect — processes that change their working directory after start may be misattributed
 - Docker container CPU/memory shows as 0 (Docker stats API is streaming, needs caching)
 - Docker containers are opaque for diagnostics — no parent chain or orphan detection inside containers
-- No config file yet — dev process names and thresholds are hardcoded
 
 ---
 
-## Phase 2: TUI Dashboard (Done)
-
-The TUI is the primary interface. It's what makes tap visual enough to share.
-
-### Main View — Project Dashboard
-
-```
- tap                                              CPU: 34%  MEM: 8.2/16 GB
-─────────────────────────────────────────────────────────────────────────────
-
- ▼ my-saas-app                    3 services    CPU 13.6%    630 MB    2h
-   ● :3000  node (next dev)                     CPU 12.3%    420 MB    2h
-   ● :5432  postgres (docker: pg-main)          CPU  1.1%    180 MB    2h
-   ● :6379  redis (docker: redis-cache)         CPU  0.2%     30 MB    2h
-
- ▼ side-project                   2 services    CPU  3.5%    240 MB   45m
-   ● :8080  go (air)                            CPU  3.4%     90 MB   45m
-   ● :5433  postgres (docker: pg-side)          CPU  0.1%    150 MB   45m
-
- ▼ unattributed                   1 process
-   ⚠ :8443  node                  ⚠ 3d uptime   CPU  5.0%    200 MB    3d
-
-─────────────────────────────────────────────────────────────────────────────
- ↑↓ navigate  enter expand  k kill  s stop project  f filter  ? help  q quit
-```
-
-### Detail View — Process Diagnostic (Enter on a process)
-
-```
- ● Port 3000 — node                                              ⚠ STALE
-─────────────────────────────────────────────────────────────────────────────
-
- Process
-   PID:       4521
-   Name:      node
-   Command:   /usr/local/bin/node .next/server.js
-   Uptime:    3d 4h 12m
-   CPU:       12.3%
-   Memory:    284.2 MB (RSS)
-
- Parent Chain
-   └─ npm run dev (PID 4518)         ✗ DEAD
-      └─ bash (PID 4510)             ✓ alive
-         └─ tmux (PID 1200)          ✓ alive
-
- Project
-   Name:      my-saas-app
-   Path:      ~/code/my-saas-app
-   Marker:    package.json
-   Other services:
-     ● :5432  postgres    180 MB  2h
-     ● :6379  redis        30 MB  2h
-
- Diagnostics
-   ⚠ Process has been running for 3+ days
-   ⚠ Parent process (npm run dev, PID 4518) is dead — this may be orphaned
-   ● Listening on 0.0.0.0:3000 (tcp)
-
-─────────────────────────────────────────────────────────────────────────────
- k kill  s stop project  esc back  q quit
-```
-
-### Health Indicators
-
-Tap flags potential problems automatically:
-
-| Indicator | Condition | Display |
-|-----------|-----------|---------|
-| ⚠ STALE | Uptime > 24 hours | Yellow warning |
-| ⚠ ORPHAN | Parent process is dead | Yellow warning |
-| ⚠ HIGH MEM | Memory > 1 GB | Yellow warning |
-| ⚠ HIGH CPU | CPU > 50% sustained | Yellow warning |
-| ● HEALTHY | None of the above | Green dot |
-
-### Keyboard Controls
-
-| Key | Action |
-|-----|--------|
-| `↑`/`↓` or `j`/`k` | Navigate processes |
-| `Enter` | Expand process detail / diagnostic card |
-| `Esc` | Back to main view |
-| `k` | Kill selected process (with confirmation) |
-| `s` | Stop all processes for selected project |
-| `f` | Filter by project name |
-| `/` | Search by name or port |
-| `r` | Force refresh |
-| `?` | Help overlay |
-| `q` | Quit |
-
-### Real-time Refresh
-
-- Dashboard auto-refreshes every 2 seconds
-- Cursor position preserved across refreshes
-- Stale/orphan detection runs on each refresh
-
----
-
-## CLI Interface
-
-```
-tap — Diagnostic dev process manager
-
-USAGE:
-    tap [COMMAND]
-
-COMMANDS:
-    (no command)    Launch TUI dashboard
-    ls              List all dev processes (table, non-interactive)
-    ports           List all ports in use
-    port <PORT>     Diagnostic card for a specific port (non-interactive)
-    kill <TARGET>   Kill a process by PID or :PORT
-    project <NAME>  Show processes for a project
-    stop <NAME>     Stop all processes for a project
-    clean           Find stale processes and stopped containers
-    doctor          Diagnose resource usage, rank projects, suggest fixes
-    init            Register current directory as a project
-    export [NAME]   Export state for sharing
-
-OPTIONS:
-    --json          Output as JSON (for ls, ports, port commands)
-    --no-docker     Skip Docker/Podman discovery
-    --verbose       Show full command lines
-    -h, --help      Show help
-    -V, --version   Show version
-```
-
-The bare `tap` command launches the TUI. `tap ls` is the non-interactive fallback for scripts and pipes.
-
----
-
-## Technical Architecture
-
-### Language
-
-**Go** — fast startup (~10-20ms), single static binary, natural Docker integration, excellent TUI ecosystem (Charm's bubbletea), cross-platform process enumeration (gopsutil).
-
-### Key Dependencies
-
-| Concern | Package | Status |
-|---------|---------|--------|
-| Process enumeration | `github.com/shirou/gopsutil/v3` | In use |
-| Docker API | `github.com/docker/docker` v28.x | In use |
-| CLI framework | `github.com/spf13/cobra` | In use |
-| Table output | `text/tabwriter` (stdlib) | In use |
-| TUI framework | `github.com/charmbracelet/bubbletea` | Phase 2 |
-| TUI styling | `github.com/charmbracelet/lipgloss` | Phase 2 |
-| TUI components | `github.com/charmbracelet/bubbles` | Phase 2 |
-
-### Platform Support
-
-- Windows (native, not just WSL2)
-- macOS (Apple Silicon + Intel)
-- Linux (x86_64 + arm64)
-
-Windows-specific: path normalization lowercases for dedup, preserves originals for display.
-
-### Data Flow
+## Data Flow
 
 ```
 Process Table (gopsutil)
@@ -318,29 +208,55 @@ Health Analyzer (stale, orphan, high memory, high CPU, parent chain)
     ▼
 Snapshot (unified model)
     │
-    ├──► TUI Dashboard (bubbletea)        ← primary interface (curated)
-    ├──► CLI Table Output (tabwriter)      ← non-interactive fallback (curated)
-    ├──► Port/Search Commands              ← unfiltered (skips second pass)
-    └──► JSON Output (encoding/json)       ← scripting
+    ▼
+Background Collector (only writer)
+    │
+    ▼
+SQLite (tap.db, WAL mode)
+    │
+    ├──► TUI Dashboard (bubbletea)        ← reads from DB
+    ├──► CLI Commands (tabwriter)         ← reads from DB
+    ├──► MCP Server (stdio)               ← reads from DB
+    └──► JSON Output (encoding/json)      ← reads from DB
+
+PATH Shims (~/.tap/shims/)
+    │
+    ▼
+tap _shim <command> [args...]             ← intercepts dev commands
+    │
+    ▼
+SQLite (tap.db, WAL mode)                 ← writes captured output
 ```
 
-### Health Analysis
+---
 
-The health analyzer runs as part of snapshot creation so both the TUI and CLI benefit:
+## Technical Details
 
-- **Stale detection:** uptime > 24 hours → flag
-- **Orphan detection:** check if PPID exists in the snapshot and the OS process table. If parent is dead, flag as orphaned.
-- **Resource warnings:** memory > 1GB or CPU > 50% → flag
-- **Parent chain:** walk the PPID chain via gopsutil, check liveness of each ancestor for the diagnostic detail view
+### Language
 
-### Two-Pass Dev Filtering
+**Go** — fast startup, single static binary, natural Docker integration, excellent TUI ecosystem (Charm's bubbletea), cross-platform process enumeration (gopsutil).
 
-The dashboard needs to be clean (no system noise), but search commands need to be complete (find anything on a port). This is solved with two filter passes:
+### Key Dependencies
 
-1. **First pass (before attribution):** Keep known dev tool names, containers, and any process with open ports. This is a performance gate — most system processes have no ports and get dropped early.
-2. **Second pass (after attribution, curated mode only):** Drop unattributed processes that only passed the first filter because they had ports, but are not known dev tools and not containers.
+| Concern | Package |
+|---------|---------|
+| Process enumeration | `github.com/shirou/gopsutil/v3` |
+| Docker API | `github.com/docker/docker` v28.x |
+| CLI framework | `github.com/spf13/cobra` |
+| TUI framework | `github.com/charmbracelet/bubbletea` |
+| TUI styling | `github.com/charmbracelet/lipgloss` |
+| TUI components | `github.com/charmbracelet/bubbles` |
+| SQLite | `modernc.org/sqlite` (pure Go, no CGo) |
+| MCP server | `github.com/modelcontextprotocol/go-sdk` |
+| Table output | `text/tabwriter` (stdlib) |
 
-Browsing commands (`tap`, `tap ls`, `tap project`) use curated mode. Search commands (`tap port`, `tap ports`, `tap kill`) skip the second pass.
+### Platform Support
+
+- Windows (native, not just WSL2)
+- macOS (Apple Silicon + Intel)
+- Linux (x86_64 + arm64)
+
+Windows-specific: path normalization lowercases for dedup, preserves originals for display. Process detachment uses `DETACHED_PROCESS` creation flag.
 
 ---
 
@@ -350,35 +266,62 @@ Browsing commands (`tap`, `tap ls`, `tap project`) use curated mode. Search comm
 tap/
 ├── go.mod
 ├── go.sum
-├── main.go                         # Entry point
+├── main.go
 ├── cmd/
-│   ├── root.go                     # Root cobra command + global flags
-│   ├── ls.go                       # tap ls (non-interactive table)
+│   ├── root.go                     # Root command + global flags + auto-start
+│   ├── ls.go                       # tap ls
 │   ├── ports.go                    # tap ports
 │   ├── port.go                     # tap port <PORT>
 │   ├── kill.go                     # tap kill <TARGET>
 │   ├── project.go                  # tap project <NAME>
-│   ├── stop.go                     # tap stop <project>
+│   ├── stop.go                     # tap stop <NAME>
 │   ├── clean.go                    # tap clean
 │   ├── init_cmd.go                 # tap init
 │   ├── export.go                   # tap export
-│   ├── dash.go                     # tap dash (TUI entry point)
-│   └── doctor.go                   # tap doctor (diagnostic report)├── internal/
+│   ├── dash.go                     # tap dash
+│   ├── doctor.go                   # tap doctor
+│   ├── collect.go                  # tap _collect (hidden, background)
+│   ├── shim.go                     # tap _shim (hidden, capture via PATH shims)
+│   ├── teardown.go                 # tap teardown
+│   ├── logs_cmd.go                 # tap logs
+│   ├── history.go                  # tap history
+│   └── mcp.go                     # tap mcp
+├── internal/
 │   ├── discovery/
 │   │   ├── processes.go            # Process enumeration via gopsutil
 │   │   ├── ports.go                # Port-to-PID mapping
 │   │   ├── docker.go               # Docker container discovery
 │   │   ├── projects.go             # Project detection + attribution
 │   │   ├── snapshot.go             # Aggregator + dev filter + system stats
-│   │   └── health.go               # Health analysis (stale, orphan, resources)│   ├── model/
+│   │   └── health.go               # Health analysis
+│   ├── model/
 │   │   ├── process.go              # DevProcess, PortBinding, ContainerInfo
 │   │   ├── project.go              # Project
 │   │   └── snapshot.go             # Snapshot
-│   └── tui/                        # TUI dashboard│       ├── app.go                  # Main bubbletea model + update loop
-│       ├── dashboard.go            # Dashboard view (project list)
-│       ├── detail.go               # Process detail / diagnostic card view
+│   ├── store/
+│   │   ├── store.go                # SQLite setup, schema, WAL mode
+│   │   ├── write.go                # PersistSnapshot, Prune
+│   │   ├── query.go                # LatestSnapshot, ProcessesByPort, etc.
+│   │   └── logs.go                 # Log line insert/query/prune
+│   ├── daemon/
+│   │   ├── collector.go            # Background collector poll loop
+│   │   ├── ensure.go               # Auto-start logic + PID file
+│   │   ├── detach_windows.go       # Windows process detachment
+│   │   └── detach_unix.go          # Unix process detachment
+│   ├── capture/
+│   │   └── runner.go               # RunAndCapture for console capture
+│   ├── shim/
+│   │   ├── shim.go                 # EnsureShims, RemoveShims, shell config
+│   │   └── resolve.go              # ResolveReal — find binary excluding shims
+│   ├── mcp/
+│   │   ├── server.go               # MCP server setup + stdio transport
+│   │   └── tools.go                # Tool handlers
+│   └── tui/
+│       ├── app.go                  # Main bubbletea model
+│       ├── dashboard.go            # Dashboard view
+│       ├── detail.go               # Process detail view
 │       ├── keys.go                 # Key bindings
-│       └── styles.go               # lipgloss styles + colors
+│       └── styles.go               # lipgloss styles
 ├── tap-spec.md
 ├── README.md
 └── LICENSE
@@ -388,86 +331,51 @@ tap/
 
 ## Data Model
 
-Current model (unchanged):
-
 ```go
 type DevProcess struct {
-    PID           *int32         // nil for stopped containers
-    PPID          int32          // Parent PID
-    Name          string         // "node", "postgres"
-    Command       string         // Full command line
+    PID           *int32
+    PPID          int32
+    Name          string
+    Command       string
     Ports         []PortBinding
-    Project       string         // Attributed project name
-    ProjectPath   string         // Project root directory
+    Project       string
+    ProjectPath   string
     CPUPercent    float64
     MemoryBytes   uint64
     StartTime     time.Time
     Kind          ProcessKind    // native | docker | podman
     ContainerInfo *ContainerInfo
+    Health        *ProcessHealth
 }
-```
-
-New additions for health analysis:
-
-```go
-type HealthFlag string
-
-const (
-    HealthOK      HealthFlag = "ok"
-    HealthStale   HealthFlag = "stale"    // uptime > 24h
-    HealthOrphan  HealthFlag = "orphan"   // parent PID is dead
-    HealthHighMem HealthFlag = "high_mem" // > 1GB RSS
-    HealthHighCPU HealthFlag = "high_cpu" // > 50% CPU
-)
 
 type ProcessHealth struct {
-    Flags       []HealthFlag    // Active health flags
-    ParentChain []ParentInfo    // Walked parent chain for diagnostics
+    Flags       []HealthFlag
+    ParentChain []ParentInfo
 }
 
-type ParentInfo struct {
-    PID   int32
-    Name  string
-    Alive bool
-}
+type HealthFlag string  // "stale", "orphan", "high_mem", "high_cpu"
 ```
-
-These get attached to `DevProcess` as a `Health *ProcessHealth` field.
 
 ---
 
 ## Roadmap
 
-### Phase 1 — Core CLI (Done)
-- ~~Process discovery + port mapping (Windows + macOS + Linux)~~
-- ~~Project attribution via CWD + parent chain walking~~
-- ~~`tap ls`, `tap ports`, `tap port`, `tap kill`~~
-- ~~Docker container discovery~~
-- ~~JSON output, dev-process filtering~~
+### Done
+- Process discovery + port mapping (Windows + macOS + Linux)
+- Project attribution via CWD + parent chain walking
+- Docker container discovery
+- Health analysis (stale, orphan, resource warnings)
+- TUI dashboard with bubbletea + lipgloss
+- All CLI commands (ls, ports, port, kill, stop, clean, doctor, init, export, project)
+- Background collector with SQLite persistence
+- Automatic console capture (PATH shimming) and log viewing (`tap logs`)
+- Snapshot history (`tap history`)
+- MCP server for AI tool integration
 
-### Phase 3 — Quality of Life (Done)
-- ~~`tap stop`, `tap clean`, `tap init`, `tap export`, `tap project`~~
-- ~~Broad ecosystem support (10+ languages)~~
-- ~~Parent chain attribution (PPID walking)~~
-
-### Phase 2 — TUI Dashboard + Diagnostics (Done)
-- ~~Health analysis engine (stale, orphan, resource warnings)~~
-- ~~TUI dashboard with bubbletea + lipgloss~~
-- ~~Project grouping with expand/collapse~~
-- ~~Process detail view (diagnostic card)~~
-- ~~Parent chain visualization with liveness checks~~
-- ~~Keyboard navigation and actions (kill, stop, confirm dialogs)~~
-- ~~Real-time 2-second refresh~~
-- ~~`tap` (bare command) launches TUI~~
-- ~~Two-pass dev filtering (curated browsing vs unfiltered search)~~
-
-### Phase 4 — Diagnostics v2 (Done)
-- ~~`tap doctor` — ranked resource report with actionable suggestions~~
-
-### Phase 5 — Future
+### Future
 - Restart loop detection (process killed but respawned by parent)
 - Port conflict warnings ("port 3000 is already taken by project X")
-- Global config file (`~/.config/tap/config.toml`) — when needed
+- Config file (`~/.config/tap/config.toml`)
 - `tap export` polish (`--clipboard`, richer output)
 - Homebrew / Scoop / GitHub Releases
 
@@ -478,14 +386,13 @@ These get attached to `DevProcess` as a `Health *ProcessHealth` field.
 - **Not a process supervisor** — doesn't keep processes alive (not PM2/systemd)
 - **Not a container orchestrator** — shows Docker state, doesn't replace docker-compose
 - **Not a system monitor** — only dev processes, not htop
-- **Not a service orchestrator** — port-kill already does YAML-based service management. Tap focuses on diagnostics and visibility, not orchestration.
 
 ---
 
 ## Success Metrics
 
 - `tap` (TUI) renders in **< 1 second** on first launch
-- `tap ls` snapshot in **< 500ms**
-- Binary size **< 15MB** (with TUI deps)
+- `tap ls` responds in **< 100ms** (reads from DB, no live scan)
+- Binary size **< 15MB**
 - Diagnostic card accurately identifies stale/orphan processes
-- Parent chain correctly traces 3+ levels
+- MCP tools respond in **< 200ms**

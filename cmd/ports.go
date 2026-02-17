@@ -9,7 +9,6 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
-	"github.com/tfvjr/tap/internal/discovery"
 	"github.com/tfvjr/tap/internal/model"
 )
 
@@ -34,9 +33,13 @@ func init() {
 }
 
 func portsRun(cmd *cobra.Command, args []string) error {
-	snap, err := discovery.TakeSnapshot(!noDocker, false)
+	snap, err := appStore.LatestSnapshot(false)
 	if err != nil {
-		return fmt.Errorf("snapshot failed: %w", err)
+		return fmt.Errorf("query: %w", err)
+	}
+	if snap == nil {
+		fmt.Println("No data yet. The collector is still starting.")
+		return nil
 	}
 
 	rows := collectPortRows(snap)

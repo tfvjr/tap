@@ -8,7 +8,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
-	"github.com/tfvjr/tap/internal/discovery"
+	"github.com/tfvjr/tap/internal/daemon"
 	"github.com/tfvjr/tap/internal/model"
 )
 
@@ -30,9 +30,13 @@ type finding struct {
 }
 
 func doctorRun(cmd *cobra.Command, args []string) error {
-	snap, err := discovery.TakeSnapshot(!noDocker, true)
+	snap, err := appStore.LatestSnapshot(true)
 	if err != nil {
-		return fmt.Errorf("snapshot: %w", err)
+		return fmt.Errorf("query: %w", err)
+	}
+	if snap == nil {
+		fmt.Println("No data yet. The collector is still starting.")
+		return nil
 	}
 
 	if jsonOutput {
@@ -50,6 +54,24 @@ func doctorRun(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Printf("System: CPU %.0f%%  MEM %.1f/%.1f GB (%.0f%%)\n\n", snap.SystemCPU, memUsedGB, memTotalGB, memPct)
+
+	// Background Collector section
+	collectorPID := daemon.CollectorPID(dataDir)
+	if collectorPID > 0 {
+		fmt.Printf("Background Collector: running (PID %d)\n", collectorPID)
+	} else {
+		fmt.Println("Background Collector: not running")
+	}
+
+	snapRows, sysRows, logRows, _ := appStore.RowCounts()
+	fmt.Printf("Database: %d snapshots, %d system stats, %d log lines\n", snapRows, sysRows, logRows)
+
+	// DB file size
+	if fi, err := os.Stat(appStore.DBPath()); err == nil {
+		sizeMB := float64(fi.Size()) / (1024 * 1024)
+		fmt.Printf("DB size: %.1f MB (%s)\n", sizeMB, appStore.DBPath())
+	}
+	fmt.Println()
 
 	// Resource ranking by project
 	if len(snap.Projects) > 0 {
@@ -81,13 +103,13 @@ func doctorRun(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Found %d issue(s):\n\n", len(findings))
 	for i, f := range findings {
-		icon := "⚠"
+		icon := "!"
 		if f.Severity == "info" {
-			icon = "●"
+			icon = "*"
 		}
 		fmt.Printf("  %s %s\n", icon, f.Message)
 		if f.Action != "" {
-			fmt.Printf("    → %s\n", f.Action)
+			fmt.Printf("    > %s\n", f.Action)
 		}
 		if i < len(findings)-1 {
 			fmt.Println()
@@ -113,7 +135,7 @@ func diagnose(snap *model.Snapshot) []finding {
 			findings = append(findings, finding{
 				Severity: "warning",
 				Message:  fmt.Sprintf("%s is using %.0f MB total across %d services", proj.Name, totalMB, len(proj.Processes)),
-				Action:   fmt.Sprintf("tap project %s  — review what's running", proj.Name),
+				Action:   fmt.Sprintf("tap project %s  -- review what's running", proj.Name),
 			})
 		}
 	}
@@ -127,7 +149,7 @@ func diagnose(snap *model.Snapshot) []finding {
 		findings = append(findings, finding{
 			Severity: "warning",
 			Message:  fmt.Sprintf("System CPU is at %.0f%%", snap.SystemCPU),
-			Action:   "tap ls  — check which processes are consuming CPU",
+			Action:   "tap ls  -- check which processes are consuming CPU",
 		})
 	}
 
@@ -139,7 +161,7 @@ func diagnose(snap *model.Snapshot) []finding {
 		findings = append(findings, finding{
 			Severity: "warning",
 			Message:  fmt.Sprintf("System memory is at %.0f%%", memPct),
-			Action:   "tap ls  — check which processes are consuming memory",
+			Action:   "tap ls  -- check which processes are consuming memory",
 		})
 	}
 
@@ -173,7 +195,7 @@ func diagnoseProcess(proc *model.DevProcess, project string) []finding {
 				Message:  fmt.Sprintf("%s has been running for %s", name, formatUptime(proc.Uptime())),
 			}
 			if project != "unattributed" {
-				f.Action = fmt.Sprintf("tap stop %s  — or  tap kill %d", project, safeDerefPID(proc.PID))
+				f.Action = fmt.Sprintf("tap stop %s  -- or  tap kill %d", project, safeDerefPID(proc.PID))
 			} else {
 				f.Action = fmt.Sprintf("tap kill %d", safeDerefPID(proc.PID))
 			}
@@ -187,7 +209,7 @@ func diagnoseProcess(proc *model.DevProcess, project string) []finding {
 			}
 			findings = append(findings, finding{
 				Severity: "warning",
-				Message:  fmt.Sprintf("%s may be orphaned — %s", name, parentDesc),
+				Message:  fmt.Sprintf("%s may be orphaned -- %s", name, parentDesc),
 				Action:   fmt.Sprintf("tap kill %d", safeDerefPID(proc.PID)),
 			})
 
@@ -195,14 +217,14 @@ func diagnoseProcess(proc *model.DevProcess, project string) []finding {
 			findings = append(findings, finding{
 				Severity: "warning",
 				Message:  fmt.Sprintf("%s is using %.0f MB", name, proc.MemoryMB()),
-				Action:   fmt.Sprintf("tap kill %d  — or restart the service", safeDerefPID(proc.PID)),
+				Action:   fmt.Sprintf("tap kill %d  -- or restart the service", safeDerefPID(proc.PID)),
 			})
 
 		case model.HealthHighCPU:
 			findings = append(findings, finding{
 				Severity: "warning",
 				Message:  fmt.Sprintf("%s is using %.1f%% CPU", name, proc.CPUPercent),
-				Action:   fmt.Sprintf("tap kill %d  — or restart the service", safeDerefPID(proc.PID)),
+				Action:   fmt.Sprintf("tap kill %d  -- or restart the service", safeDerefPID(proc.PID)),
 			})
 		}
 	}

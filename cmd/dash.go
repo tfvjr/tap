@@ -20,7 +20,7 @@ func init() {
 }
 
 func dashRun(cmd *cobra.Command, args []string) error {
-	m := tui.NewModel(noDocker)
+	m := tui.NewModel(appStore)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI error: %w", err)
